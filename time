@@ -1,0 +1,5 @@
+SerializeClassHierarchy finishes, elapsed time: 0.08s
+WorldBuilder finishes, elapsed time: 8.60s
+deserialization call graph finishes, elapsed time: 58.61s
+collect gc finishes, elapsed time: 562.99s
+GeeCee finishes, elapsed time: 630.54s
