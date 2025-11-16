@@ -22,6 +22,8 @@
 
 package pascal.taie;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.analysis.AnalysisManager;
@@ -66,7 +68,7 @@ public class Main {
                 System.exit(0);
             }
             buildWorld(options, plan.analyses());
-            executePlan(plan);
+//            executePlan(plan);
             LoggerConfigs.reconfigure();
         }, "GeeCee");
     }
@@ -161,88 +163,69 @@ public class Main {
     private static void serializeClassHierarchy(Options options) {
         Timer.runAndCount(() -> {
             ClassHierarchy hierarchy = World.get().getClassHierarchy();
-            Map<String, Map<String, Map<String, String>>> moduleHierarchyMap = new java.util.HashMap<>();
+            Map<String, HierarchyNode> allNodes = new java.util.HashMap<>();
 
-            for (JClass superclass : (Iterable<JClass>) () -> hierarchy.allClasses().iterator()) {
-                if (superclass.isInterface() || superclass.isAbstract()) {
-                    Collection<JClass> directSubclasses = hierarchy.getAllSubclassesOf(superclass);
+            // 1. Create nodes for all classes
+            for (JClass jClass : (Iterable<JClass>) () -> hierarchy.allClasses().iterator()) {
+                String moduleName = jClass.getModuleName();
+                if (moduleName == null) {
+                    moduleName = "UNKNOWN_MODULE";
+                }
+                allNodes.put(jClass.getName(), new HierarchyNode(moduleName));
+            }
 
-                    if (!directSubclasses.isEmpty()) {
-                        String moduleNameOfSuper = superclass.getModuleName();
-                        if (moduleNameOfSuper == null) {
-                            moduleNameOfSuper = "UNKNOWN_MODULE";
-                        }
+            // 2. Link children to their parents and collect all non-root nodes
+            Set<String> nonRoots = new HashSet<>();
+            for (JClass jClass : (Iterable<JClass>) () -> hierarchy.allClasses().iterator()) {
+                HierarchyNode childNode = allNodes.get(jClass.getName());
 
-                        Map<String, Map<String, String>> hierarchyForModule = moduleHierarchyMap.computeIfAbsent(
-                                moduleNameOfSuper, k -> new java.util.HashMap<>());
+                JClass superclass = jClass.getSuperClass();
+                if (superclass != null) {
+                    HierarchyNode parentNode = allNodes.get(superclass.getName());
+                    if (parentNode != null) {
+                        parentNode.children.put(jClass.getName(), childNode);
+                        nonRoots.add(jClass.getName());
+                    }
+                }
 
-                        Map<String, String> subclassesMap = hierarchyForModule.computeIfAbsent(
-                                superclass.getName(), k -> new java.util.HashMap<>());
-
-                        for (JClass subclass : directSubclasses) {
-                            subclassesMap.put(subclass.getName(), subclass.getModuleName());
-                        }
+                for (JClass iface : jClass.getInterfaces()) {
+                    HierarchyNode parentNode = allNodes.get(iface.getName());
+                    if (parentNode != null) {
+                        parentNode.children.put(jClass.getName(), childNode);
+                        nonRoots.add(jClass.getName());
                     }
                 }
             }
 
+            // 3. Roots are all nodes that are not in the nonRoots set; group them by module
+            Map<String, Map<String, HierarchyNode>> moduleRoots = new java.util.TreeMap<>();
+            for (Map.Entry<String, HierarchyNode> entry : allNodes.entrySet()) {
+                if (!nonRoots.contains(entry.getKey())) {
+                    HierarchyNode rootNode = entry.getValue();
+                    moduleRoots
+                            .computeIfAbsent(rootNode.module, k -> new java.util.TreeMap<>())
+                            .put(entry.getKey(), rootNode);
+                }
+            }
+
+            // Determine filename
             String identifier = "default";
             List<String> appClassPath = options.getAppClassPath();
             if (appClassPath != null && !appClassPath.isEmpty()) {
                 String firstPath = appClassPath.get(0);
-                // Extract the last part of the path as the identifier
                 java.nio.file.Path path = java.nio.file.Paths.get(firstPath);
                 identifier = path.getFileName().toString();
-                // Remove trailing slash if it's a directory
                 if (identifier.endsWith(java.io.File.separator)) {
                     identifier = identifier.substring(0, identifier.length() - 1);
                 }
             }
-
             String filename = String.format("class-hierarchy-%s.json", identifier);
 
+            // Serialize using Gson
             try (java.io.Writer writer = new java.io.FileWriter(
                     new java.io.File(options.getOutputDir(), filename))) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("{\n");
-                boolean firstModule = true;
-                for (Map.Entry<String, Map<String, Map<String, String>>> moduleEntry : moduleHierarchyMap.entrySet()) {
-                    if (!firstModule) {
-                        sb.append(",\n");
-                    }
-                    String moduleKey = moduleEntry.getKey().replace("\\", "\\\\").replace("\"", "\\\"");
-                    sb.append("  \"").append(moduleKey).append("\": {\n");
-
-                    boolean firstSuper = true;
-                    for (Map.Entry<String, Map<String, String>> superclassEntry : moduleEntry.getValue().entrySet()) {
-                        if (!firstSuper) {
-                            sb.append(",\n");
-                        }
-                        String superKey = superclassEntry.getKey().replace("\\", "\\\\").replace("\"", "\\\"");
-                        sb.append("    \"").append(superKey).append("\": {\n");
-
-                        boolean firstSub = true;
-                        for (Map.Entry<String, String> subclassEntry : superclassEntry.getValue().entrySet()) {
-                            if (!firstSub) {
-                                sb.append(",\n");
-                            }
-                            String subKey = subclassEntry.getKey().replace("\\", "\\\\").replace("\"", "\\\"");
-                            String subValue = subclassEntry.getValue();
-                            String subValueJson = "null";
-                            if (subValue != null) {
-                                subValueJson = "\"" + subValue.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-                            }
-                            sb.append("      \"").append(subKey).append("\": ").append(subValueJson);
-                            firstSub = false;
-                        }
-                        sb.append("\n    }");
-                        firstSuper = false;
-                    }
-                    sb.append("\n  }");
-                    firstModule = false;
-                }
-                sb.append("\n}\n");
-                writer.write(sb.toString());
+                Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                writer.write(gson.toJson(moduleRoots));
             } catch (java.io.IOException e) {
                 logger.error("Failed to serialize class hierarchy", e);
             }
@@ -314,4 +297,15 @@ public class Main {
         new AnalysisManager(plan).execute();
     }
 
+    /**
+     * Represents a node in the class hierarchy tree for serialization.
+     */
+    private static class HierarchyNode {
+        public final String module;
+        public final Map<String, HierarchyNode> children = new java.util.TreeMap<>();
+
+        public HierarchyNode(String module) {
+            this.module = module;
+        }
+    }
 }

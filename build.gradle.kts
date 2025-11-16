@@ -52,7 +52,7 @@ task<JavaExec>("runDynamicTester") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("pascal.taie.DynamicTester")
     args = listOf("output/chains")
-    jvmArgs = listOf("--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "--add-opens", "java.base/java.io=ALL-UNNAMED", "--add-opens", "java.base/sun.reflect=ALL-UNNAMED", "--add-opens", "java.base/java.net=ALL-UNNAMED", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED", "--add-opens", "java.management/javax.management=ALL-UNNAMED", "--add-opens", "java.management/javax.management.openmbean=ALL-UNNAMED", "--add-opens", "java.base/sun.reflect.annotation=ALL-UNNAMED")
+    jvmArgs = listOf("--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "--add-opens", "java.base/java.io=ALL-UNNAMED", "--add-opens", "java.base/sun.reflect=ALL-UNNAMED", "--add-opens", "java.base/java.net=ALL-UNNAMED", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED", "--add-opens", "java.management/javax.management=ALL-UNNAMED", "--add-opens", "java.management/javax.management.openmbean=ALL-UNNAMED", "--add-opens", "java.base/sun.reflect.annotation=ALL-UNNAMED", "--add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED", "--add-opens=java.sql/java.sql=ALL-UNNAMED", "--add-opens=java.sql.rowset/com.sun.rowset=ALL-UNNAMED")
 }
 
 task("fatJar", type = Jar::class) {

@@ -1,9 +1,9 @@
 .gradle/
-src/crystaliser
-src/gcminer
 docker/
 .idea/
 bin/
 build/
 out/
 output/
+src/gcminer/
+src/crystaliser/
