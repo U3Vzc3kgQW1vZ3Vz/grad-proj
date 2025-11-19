@@ -27,6 +27,7 @@ import com.google.gson.GsonBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.analysis.AnalysisManager;
+import pascal.taie.analysis.dataflow.analysis.methodsummary.plugin.PrioriKnowConfig;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.config.AnalysisPlanner;
 import pascal.taie.config.ConfigManager;
@@ -68,7 +69,7 @@ public class Main {
                 System.exit(0);
             }
             buildWorld(options, plan.analyses());
-//            executePlan(plan);
+            executePlan(plan);
             LoggerConfigs.reconfigure();
         }, "GeeCee");
     }
@@ -209,16 +210,8 @@ public class Main {
             }
 
             // Determine filename
-            String identifier = "default";
+            String identifier = PrioriKnowConfig.getIndentiferOfJar(options);
             List<String> appClassPath = options.getAppClassPath();
-            if (appClassPath != null && !appClassPath.isEmpty()) {
-                String firstPath = appClassPath.get(0);
-                java.nio.file.Path path = java.nio.file.Paths.get(firstPath);
-                identifier = path.getFileName().toString();
-                if (identifier.endsWith(java.io.File.separator)) {
-                    identifier = identifier.substring(0, identifier.length() - 1);
-                }
-            }
             String filename = String.format("class-hierarchy-%s.json", identifier);
 
             // Serialize using Gson

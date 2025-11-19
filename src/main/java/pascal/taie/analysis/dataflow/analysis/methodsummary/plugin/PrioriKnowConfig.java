@@ -14,6 +14,7 @@ import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
 import pascal.taie.analysis.dataflow.analysis.methodsummary.Utils.ContrUtil;
 import pascal.taie.config.ConfigException;
+import pascal.taie.config.Options;
 import pascal.taie.language.classes.ClassHierarchy;
 import pascal.taie.language.classes.JClass;
 import pascal.taie.language.classes.JField;
@@ -58,7 +59,19 @@ public record PrioriKnowConfig(List<JMethod> sinks,
             throw new ConfigException("Failed to priori knowledge config config from " + file, e);
         }
     }
-
+    public static String getIndentiferOfJar(Options options){
+        String identifier = "default";
+        List<String> appClassPath = options.getAppClassPath();
+        if (appClassPath != null && !appClassPath.isEmpty()) {
+            String firstPath = appClassPath.get(0);
+            java.nio.file.Path path = java.nio.file.Paths.get(firstPath);
+            identifier = path.getFileName().toString();
+            if (identifier.endsWith(java.io.File.separator)) {
+                identifier = identifier.substring(0, identifier.length() - 1);
+            }
+        }
+    return identifier;
+    }
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("Priori-Know-Config:");

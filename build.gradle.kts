@@ -1,3 +1,6 @@
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
+
 plugins {
     application
     id("tai-e.conventions")
@@ -32,10 +35,12 @@ dependencies {
     // JSR305, for javax.annotation
     implementation("com.google.code.findbugs:jsr305:3.0.2")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("javax.servlet:javax.servlet-api:4.0.1")
 
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.platform:junit-platform-suite")
+    runtimeOnly("org.jsoup:jsoup:1.15.3")
 }
 
 application {
@@ -49,10 +54,44 @@ tasks.named("run", JavaExec::class) {
 task<JavaExec>("runDynamicTester") {
     group = "application"
     description = "Runs the dynamic gadget chain tester"
-    classpath = sourceSets.main.get().runtimeClasspath
-    mainClass.set("pascal.taie.DynamicTester")
-    args = listOf("output/chains")
-    jvmArgs = listOf("--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "--add-opens", "java.base/java.io=ALL-UNNAMED", "--add-opens", "java.base/sun.reflect=ALL-UNNAMED", "--add-opens", "java.base/java.net=ALL-UNNAMED", "--add-opens", "java.base/java.util.concurrent=ALL-UNNAMED", "--add-opens", "java.management/javax.management=ALL-UNNAMED", "--add-opens", "java.management/javax.management.openmbean=ALL-UNNAMED", "--add-opens", "java.base/sun.reflect.annotation=ALL-UNNAMED", "--add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED", "--add-opens=java.sql/java.sql=ALL-UNNAMED", "--add-opens=java.sql.rowset/com.sun.rowset=ALL-UNNAMED")
+    val mainClasspath = sourceSets.main.get().runtimeClasspath
+    val ymlFile = file("java-benchmarks/JDV/test.yml")
+    val mapper = ObjectMapper(YAMLFactory())
+    val config = mapper.readValue(ymlFile, Map::class.java)
+    val appClassPath: List<String> = (config["appClassPath"] as? List<*>)
+        ?.mapNotNull { it as? String }
+        ?: error("appClassPath is missing or not a list of strings in test.yml")
+    val appClasspath = files(appClassPath.map { path ->
+        val dir = file(path)
+        // Return a file tree for jars if it's a directory, otherwise the file itself
+        if (dir.isDirectory) fileTree(mapOf("dir" to dir, "include" to listOf("**/*.jar"))) + files(dir) else files(dir)
+    })
+    classpath = mainClasspath + appClasspath
+    mainClass.set("pascal.taie.dynamic.DynamicTester")
+    args = listOf("--options-file", "java-benchmarks/JDV/test.yml")
+    jvmArgs = listOf(
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/sun.reflect=ALL-UNNAMED",
+        "--add-opens=java.base/java.net=ALL-UNNAMED",
+        "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+        "--add-opens=java.management/javax.management=ALL-UNNAMED",
+        "--add-opens=java.management/javax.management.openmbean=ALL-UNNAMED",
+        "--add-opens=java.base/sun.reflect.annotation=ALL-UNNAMED",
+        "--add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED",
+        "--add-opens=java.sql/java.sql=ALL-UNNAMED",
+        "--add-opens=java.sql.rowset/com.sun.rowset=ALL-UNNAMED",
+        "--add-opens=java.xml/com.sun.org.apache.xerces.internal.impl.xs.util=ALL-UNNAMED",
+        "--add-opens=java.xml/com.sun.org.apache.xpath.internal.objects=ALL-UNNAMED",
+        "--add-opens=java.xml/com.sun.org.apache.xerces.internal.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+        "--add-opens=java.desktop/javax.swing=ALL-UNNAMED",
+        "--add-opens=java.base/java.time.chrono=ALL-UNNAMED",
+        "--add-opens=java.base/sun.net.www.protocol.file=ALL-UNNAMED",
+        "--add-opens=java.base/java.time=ALL-UNNAMED",
+        "--add-opens=java.xml/com.sun.org.apache.xml.internal.utils=ALL-UNNAMED"
+    )
 }
 
 task("fatJar", type = Jar::class) {
