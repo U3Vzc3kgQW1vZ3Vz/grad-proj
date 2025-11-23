@@ -94,6 +94,38 @@ task<JavaExec>("runDynamicTester") {
     )
 }
 
+task<JavaExec>("runMain") {
+    group = "application"
+    description = "Runs pascal.taie.Main with classpath from settings.gradle.kts"
+    val mainClasspath = sourceSets.main.get().runtimeClasspath
+
+    val extraClassPath: List<String> = if (gradle.extra.has("classPath")) {
+        @Suppress("UNCHECKED_CAST")
+        gradle.extra["classPath"] as List<String>
+    } else {
+        emptyList()
+    }
+
+    val appClasspath = files(extraClassPath.map { path ->
+        val dir = file(path)
+        // Return a file tree for jars if it's a directory, otherwise the file itself
+        if (dir.isDirectory) fileTree(mapOf("dir" to dir, "include" to listOf("**/*.jar"))) + files(dir) else files(dir)
+    })
+
+    classpath = mainClasspath + appClasspath
+    mainClass.set("pascal.taie.Main")
+
+    // Pass command line arguments
+    if (project.hasProperty("args")) {
+        args = (project.property("args") as String).split("\\s+".toRegex())
+    } else {
+        args = listOf("--options-file", "java-benchmarks/JDV/test.yml")
+    }
+
+    jvmArgs = listOf("-Xss512m", "-Xmx8G")
+}
+
+
 task("fatJar", type = Jar::class) {
     group = "build"
     description = "Creates a single jar file including Tai-e and all dependencies"
@@ -154,3 +186,4 @@ extensions.findByName("buildScan")?.withGroovyBuilder {
     setProperty("termsOfServiceUrl", "https://gradle.com/terms-of-service")
     setProperty("termsOfServiceAgree", "yes")
 }
+

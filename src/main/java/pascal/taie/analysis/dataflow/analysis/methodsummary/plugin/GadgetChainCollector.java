@@ -32,9 +32,9 @@ import java.util.stream.Collectors;
  * - Extensible sink detection rules
  * - Improved modularity and maintainability
  */
-public class GCCollectorAfterProcess implements Plugin {
+public class GadgetChainCollector implements Plugin {
 
-    private static final Logger logger = LogManager.getLogger(GCCollectorAfterProcess.class);
+    private static final Logger logger = LogManager.getLogger(GadgetChainCollector.class);
 
     private final CSCallGraph csCallGraph;
     private final TypeSystem typeSystem;
@@ -52,7 +52,7 @@ public class GCCollectorAfterProcess implements Plugin {
     private final PrintWriter pw;
     private final Map<String, Set<List<String>>> dedupMap;
 
-    public GCCollectorAfterProcess(CSCallGraph csCallGraph, String db_path) {
+    public GadgetChainCollector(CSCallGraph csCallGraph, String db_path) {
         super();
         this.csCallGraph = csCallGraph;
         this.typeSystem = World.get().getTypeSystem();
@@ -78,17 +78,11 @@ public class GCCollectorAfterProcess implements Plugin {
      * Initialize sink detection rules
      */
     private void initializeSinkRules() {
-        // Core sink rules
         gadgetAnalyzer.registerSinkRule(new ExecSinkRule());
         gadgetAnalyzer.registerSinkRule(new JNDISinkRule());
         gadgetAnalyzer.registerSinkRule(new InvokeSinkRule());
 
-        // Additional sink rules from jdd
-        gadgetAnalyzer.registerSinkRule(new FileSinkRule());
-        gadgetAnalyzer.registerSinkRule(new ClassLoaderSinkRule());
-        gadgetAnalyzer.registerSinkRule(new SecondDeserializationSinkRule());
-        gadgetAnalyzer.registerSinkRule(new CustomSinkRule());
-
+        // Can add custom rules here
         logger.info("Initialized {} sink rules",
             gadgetAnalyzer.getFragmentContainer().getSinkRules().size());
     }
@@ -100,19 +94,24 @@ public class GCCollectorAfterProcess implements Plugin {
         logger.info("Starting gadget chain collection from {} sinks", sinks.size());
 
         for (JMethod sink : sinks) {
-            logger.info("backward from {}", sink.toString());
-            // Try to classify sink type, but process all sinks regardless
+            // Check if this sink matches any of our rules
             Optional<SinkType> sinkType = fragmentContainer.getSinkType(sink);
-            collectChainsFromSink(sink, sinkType.orElse(null));
+            if (sinkType.isPresent()) {
+                logger.info("Backward search from {} [{}]", sink, sinkType.get());
+                collectChainsFromSink(sink, sinkType.get());
+            } else {
+                logger.debug("Skipping sink {} (no matching rule)", sink);
+            }
         }
 
-        logger.info("total gadget chains : {}", discoveredChains.size());
+        logger.info("Total gadget chains discovered: {}", discoveredChains.size());
         pw.println("total gadget chains : " + discoveredChains.size());
 
         // Print statistics by sink type
         printStatisticsBySinkType();
 
         pw.flush();
+        pw.close();
     }
 
     /**
@@ -220,113 +219,6 @@ public class GCCollectorAfterProcess implements Plugin {
     }
 
     /**
-     * Deduplicate chains using LCS similarity
-     */
-    private boolean deduplicateChain(List<String> chainSignatures) {
-        String key = chainSignatures.get(0) + "#" + chainSignatures.get(chainSignatures.size() - 1);
-        List<String> subSignatures = getSubSignatures(chainSignatures);
-
-        dedupMap.putIfAbsent(key, new HashSet<>());
-
-        for (List<String> existingChain : dedupMap.get(key)) {
-            if (computeLCSSimilarity(existingChain, subSignatures) >= LCS_THRESHOLD) {
-                return false; // Too similar to existing chain
-            }
-        }
-
-        dedupMap.get(key).add(subSignatures);
-        return true;
-    }
-
-    public static int computeLCSLength(List<String> list1, List<String> list2) {
-        int m = list1.size();
-        int n = list2.size();
-        int[][] dp = new int[m + 1][n + 1];
-
-        for (int i = 1; i <= m; i++) {
-            String s1 = list1.get(i - 1);
-            for (int j = 1; j <= n; j++) {
-                String s2 = list2.get(j - 1);
-                if (s1.equals(s2)) {
-                    dp[i][j] = dp[i - 1][j - 1] + 1;
-                } else {
-                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-                }
-            }
-        }
-
-        return dp[m][n];
-    }
-
-    /**
-     * Similarity of two gadget chains
-     */
-    private static double computeLCSSimilarity(List<String> list1, List<String> list2) {
-        if (list1.isEmpty() || list2.isEmpty()) {
-            return 0.0;
-        }
-        int lcsLength = computeLCSLength(list1, list2);
-        return (2.0 * lcsLength) / (list1.size() + list2.size());
-    }
-
-    private List<String> getSubSignatures(List<String> signatures) {
-        return signatures.stream()
-            .map(this::getSubSignature)
-            .collect(Collectors.toList());
-    }
-
-    private List<String> getChainSignatures(List<Edge> chainEdges) {
-        List<String> signatures = new ArrayList<>();
-        for (Edge edge : chainEdges) {
-            signatures.add(CSCallGraph.getCaller(edge).toString());
-        }
-        signatures.add(CSCallGraph.getCallee(chainEdges.get(chainEdges.size() - 1)).toString());
-        return signatures;
-    }
-
-    /**
-     * Log and write discovered chain
-     */
-    private void logAndWriteChain(List<Edge> chainEdges, SinkType sinkType) {
-        try {
-            // Only print sink type if it's classified
-            if (sinkType != null) {
-                pw.println("# Sink Type: " + sinkType);
-            }
-
-            for (int i = 0; i < chainEdges.size(); i++) {
-                Edge edge = chainEdges.get(i);
-                String caller = CSCallGraph.getCaller(edge).toString();
-                StringBuilder line = new StringBuilder(caller);
-                line.append("->").append(edge.getCSIntContr());
-
-                pw.println(line.toString());
-            }
-
-            String sink = CSCallGraph.getCallee(chainEdges.get(chainEdges.size() - 1)).toString();
-            logger.info(sink);
-            pw.println(sink);
-            logger.info("");
-            pw.println("");
-            pw.flush();
-
-        } catch (Exception e) {
-            logger.info(e);
-        }
-    }
-
-    private boolean filterChainByEdgeRules(List<Edge> edgeList) {
-        for (int i = 0; i < edgeList.size(); i++) {
-            Edge edge = edgeList.get(i);
-            if (edge.needFilterByCaller()) {
-                List<Edge> callers = edgeList.subList(i + 1, edgeList.size());
-                return filterByCaller(edge, callers);
-            }
-        }
-        return false;
-    }
-
-    /**
      * Simplify chain by removing redundant intermediate gadgets
      */
     private List<Edge> simplifyChain(List<Edge> edgeList) {
@@ -380,12 +272,78 @@ public class GCCollectorAfterProcess implements Plugin {
         return simplifiedChain;
     }
 
+    /**
+     * Deduplicate chains using LCS similarity
+     */
+    private boolean deduplicateChain(List<String> chainSignatures) {
+        String key = chainSignatures.get(0) + "#" + chainSignatures.get(chainSignatures.size() - 1);
+        List<String> subSignatures = getSubSignatures(chainSignatures);
+
+        dedupMap.putIfAbsent(key, new HashSet<>());
+
+        for (List<String> existingChain : dedupMap.get(key)) {
+            if (computeLCSSimilarity(existingChain, subSignatures) >= LCS_THRESHOLD) {
+                return false; // Too similar to existing chain
+            }
+        }
+
+        dedupMap.get(key).add(subSignatures);
+        return true;
+    }
+
+    /**
+     * Log and write discovered chain
+     */
+    private void logAndWriteChain(List<Edge> chainEdges, SinkType sinkType) {
+        try {
+            pw.println("# Sink Type: " + sinkType);
+
+            for (int i = 0; i < chainEdges.size(); i++) {
+                Edge edge = chainEdges.get(i);
+                String caller = CSCallGraph.getCaller(edge).toString();
+                StringBuilder line = new StringBuilder(caller);
+                line.append(" -> ").append(edge.getCSIntContr());
+
+                pw.println(line.toString());
+            }
+
+            String sink = CSCallGraph.getCallee(chainEdges.get(chainEdges.size() - 1)).toString();
+            logger.info("Discovered chain ending at: {}", sink);
+            pw.println(sink);
+            pw.println(); // Blank line between chains
+            pw.flush();
+
+        } catch (Exception e) {
+            logger.error("Error writing chain", e);
+        }
+    }
+
+    /**
+     * Print statistics by sink type
+     */
+    private void printStatisticsBySinkType() {
+        Map<SinkType, Long> statsByType = new HashMap<>();
+
+        // Count chains by sink type (would need to track this during collection)
+        // For now, just print total
+        pw.println("\n=== Statistics ===");
+        pw.println("Total unique chains: " + discoveredChains.size());
+
+        for (SinkRule rule : fragmentContainer.getSinkRules()) {
+            pw.println("Sink rule: " + rule.getDescription());
+        }
+    }
+
+    // ==================== Helper Methods ====================
+
     private List<Integer> getNewTCList(List<Integer> tcList, List<Integer> csIntContr) {
         List<Integer> tempTC = new ArrayList<>();
-        for (int i = 0; i < tcList.size(); i++) {
-            Integer tc = tcList.get(i);
-            Integer newTC = tc > ContrUtil.iPOLLUTED ? csIntContr.get(tc + 1) : ContrUtil.iPOLLUTED;
-            if (!tempTC.contains(newTC)) tempTC.add(newTC);
+        for (Integer tc : tcList) {
+            Integer newTC = tc > ContrUtil.iPOLLUTED ?
+                csIntContr.get(tc + 1) : ContrUtil.iPOLLUTED;
+            if (!tempTC.contains(newTC)) {
+                tempTC.add(newTC);
+            }
         }
         return tempTC;
     }
@@ -397,19 +355,93 @@ public class GCCollectorAfterProcess implements Plugin {
         for (Edge edge : edgeList) {
             if (CSCallGraph.getCallee(edge).toString().equals(tcKey)) {
                 break;
-            } else {
-                subEdgeList.add(edge);
             }
+            subEdgeList.add(edge);
         }
 
-        List<Integer> sinkTC = Arrays.stream(sink.getSink()).boxed().collect(Collectors.toList());
+        List<Integer> sinkTC = Arrays.stream(sink.getSink())
+            .boxed()
+            .collect(Collectors.toList());
         Map<String, List<Integer>> tcMap = recoveryTCMap(subEdgeList, sinkTC);
         return tcMap.getOrDefault(tcKey, null);
     }
 
-    /**
-     * Filter edge containing reflection or invoke
-     */
+    private Map<String, List<Integer>> recoveryTCMap(List<Edge> edgeList, List<Integer> tcList) {
+        Map<String, List<Integer>> tempTCMap = new HashMap<>();
+        for (Edge edge : edgeList) {
+            tcList = getNewTCList(tcList, edge.getCSIntContr());
+            if (!ContrUtil.allControllable(tcList)) {
+                return tempTCMap;
+            }
+            JMethod sGadget = CSCallGraph.getCaller(edge);
+            tempTCMap.put(sGadget.toString(), tcList);
+        }
+        return tempTCMap;
+    }
+
+    private List<String> getChainSignatures(List<Edge> chainEdges) {
+        List<String> signatures = new ArrayList<>();
+        for (Edge edge : chainEdges) {
+            signatures.add(CSCallGraph.getCaller(edge).toString());
+        }
+        signatures.add(CSCallGraph.getCallee(chainEdges.get(chainEdges.size() - 1)).toString());
+        return signatures;
+    }
+
+    private List<String> getSubSignatures(List<String> signatures) {
+        return signatures.stream()
+            .map(this::getSubSignature)
+            .collect(Collectors.toList());
+    }
+
+    private String getSubSignature(String method) {
+        String sub = method.split(":")[1];
+        return sub.substring(1, sub.length() - 1);
+    }
+
+    // ==================== LCS Deduplication ====================
+
+    private static int computeLCSLength(List<String> list1, List<String> list2) {
+        int m = list1.size();
+        int n = list2.size();
+        int[][] dp = new int[m + 1][n + 1];
+
+        for (int i = 1; i <= m; i++) {
+            String s1 = list1.get(i - 1);
+            for (int j = 1; j <= n; j++) {
+                String s2 = list2.get(j - 1);
+                if (s1.equals(s2)) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+        }
+
+        return dp[m][n];
+    }
+
+    private static double computeLCSSimilarity(List<String> list1, List<String> list2) {
+        if (list1.isEmpty() || list2.isEmpty()) {
+            return 0.0;
+        }
+        int lcsLength = computeLCSLength(list1, list2);
+        return (2.0 * lcsLength) / (list1.size() + list2.size());
+    }
+
+    // ==================== Chain Filtering ====================
+
+    private boolean filterChainByEdgeRules(List<Edge> edgeList) {
+        for (int i = 0; i < edgeList.size(); i++) {
+            Edge edge = edgeList.get(i);
+            if (edge.needFilterByCaller()) {
+                List<Edge> callers = edgeList.subList(i + 1, edgeList.size());
+                return filterByCaller(edge, callers);
+            }
+        }
+        return false;
+    }
+
     private boolean filterByCaller(Edge edge, List<Edge> callers) {
         String filter = edge.getFilterByCaller();
         String value = filter.split(":")[1];
@@ -464,9 +496,8 @@ public class GCCollectorAfterProcess implements Plugin {
         return false;
     }
 
-    /**
-     * Type check chain for compatibility
-     */
+    // ==================== Type Checking ====================
+
     private boolean typeCheckChain(List<Edge> edgeList) {
         List<Edge> reversedChain = new ArrayList<>(edgeList);
         Collections.reverse(reversedChain);
@@ -497,7 +528,7 @@ public class GCCollectorAfterProcess implements Plugin {
         return true;
     }
 
-    private boolean filterCast(List<Edge> chainEdges, int startIndex) { // no cast in dynamic proxy
+    private boolean filterCast(List<Edge> chainEdges, int startIndex) {
         List<Edge> tempEdgeList = chainEdges.subList(0, startIndex);
         Collections.reverse(tempEdgeList);
 
@@ -513,29 +544,14 @@ public class GCCollectorAfterProcess implements Plugin {
         return true;
     }
 
-    private String getSubSignature(String method) {
-        String sub = method.split(":")[1];
-        return sub.substring(1, sub.length() - 1);
-    }
-
     private List<Type> getParamsType(JMethod method) {
         List<Type> ret = new ArrayList<>(method.getParamTypes());
         ret.add(0, method.getDeclaringClass().getType());
         return ret;
     }
 
-    private Map<String, List<Integer>> recoveryTCMap(List<Edge> edgeList, List<Integer> tcList) {
-        Map<String, List<Integer>> tempTCMap = new HashMap<>();
-        for (Edge edge : edgeList) {
-            tcList = getNewTCList(tcList, edge.getCSIntContr());
-            if (!ContrUtil.allControllable(tcList)) return tempTCMap;
-            JMethod sGadget = CSCallGraph.getCaller(edge);
-            tempTCMap.put(sGadget.toString(), tcList);
-        }
-        return tempTCMap;
-    }
-
-    private List<Type> getNewPassType(List<Integer> edgeContr, List<Type> edgeType, List<Type> passType, List<Type> paramsType) {
+    private List<Type> getNewPassType(List<Integer> edgeContr, List<Type> edgeType,
+                                     List<Type> passType, List<Type> paramsType) {
         List<Type> ret = new ArrayList<>();
         for (int i = 0; i < edgeContr.size(); i++) {
             int c = edgeContr.get(i);
@@ -548,17 +564,5 @@ public class GCCollectorAfterProcess implements Plugin {
             }
         }
         return ret;
-    }
-
-    /**
-     * Print statistics by sink type
-     */
-    private void printStatisticsBySinkType() {
-        pw.println("\n=== Statistics ===");
-        pw.println("Total unique chains: " + discoveredChains.size());
-
-        for (SinkRule rule : fragmentContainer.getSinkRules()) {
-            pw.println("Sink rule: " + rule.getDescription());
-        }
     }
 }

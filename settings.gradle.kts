@@ -4,3 +4,8 @@ include(
     ":", // root project
     "docs",
 )
+
+// Defines the classpath to be used by the 'runMain' task in build.gradle.kts
+gradle.extra["classPath"] = listOf<String>(
+    // Add paths to directories or jars here
+)

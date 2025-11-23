@@ -1073,7 +1073,7 @@ public class DynamicTester {
         try {
             // Load classpath from configuration
 
-            List<URL> classpath = configFile != null ? loadClasspathFromYaml(configFile) : new ArrayList<>();
+            List<URL> classpath = configFile != null ? loadClasspathFromYaml(configFile) : new ArrayList<URL>();
             URLClassLoader classLoader = new URLClassLoader(
                 classpath.toArray(new URL[0]),
                 DynamicTester.class.getClassLoader()

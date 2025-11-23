@@ -2,8 +2,9 @@ optionsFile: null
 printHelp: false
 classPath: []
 appClassPath:
-  - java-benchmarks/JDV/BasicDependency/
-  - java-benchmarks/JDV/target/Vaadin # <org.yaml.snakeyaml.Yaml: java.lang.Object load(java.lang.String)>
+  - java-benchmarks/JDV/target/
+#  - java-benchmarks/JDV/target/Vaadin # <org.yaml.snakeyaml.Yaml: java.lang.Object load(java.lang.String)>
+
 inputClasses: []
 javaVersion: 8
 prependJVM: false
