@@ -126,7 +126,7 @@ public abstract class AbstractSinkRule implements SinkRule {
      * Helper: Add all method signatures across the class hierarchy for a base signature.
      * This finds ALL implementations/overrides in subclasses.
      *
-     * Example: addAllSubclassSignatures("<java.io.OutputStream: void write(byte[])>")
+     * Example: addAllSubclassSignatures("&lt;java.io.OutputStream: void write(byte[])&gt;")
      * will add signatures for FileOutputStream.write, BufferedOutputStream.write, etc.
      */
     protected void addAllSubclassSignatures(String baseSignature) {

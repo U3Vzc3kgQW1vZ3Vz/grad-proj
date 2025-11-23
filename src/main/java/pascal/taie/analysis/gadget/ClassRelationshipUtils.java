@@ -26,7 +26,7 @@ public class ClassRelationshipUtils {
      * Get all method signatures for methods matching a specific signature
      * across all subclasses of the declaring class.
      *
-     * Example: "<java.io.OutputStream: void write(byte[])>"
+     * Example: "&lt;java.io.OutputStream: void write(byte[])&gt;"
      * Returns signatures for all subclasses that implement/override this method.
      *
      * @param baseSignature The base method signature

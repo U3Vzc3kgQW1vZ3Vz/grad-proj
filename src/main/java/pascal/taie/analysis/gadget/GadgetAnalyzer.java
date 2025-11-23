@@ -16,7 +16,7 @@ import java.util.*;
  * GadgetAnalyzer analyzer = new GadgetAnalyzer();
  * analyzer.initialize();
  * analyzer.analyze();
- * List<GadgetChain> chains = analyzer.getGadgetChains();
+ * List&lt;GadgetChain&gt; chains = analyzer.getGadgetChains();
  * </pre>
  */
 public class GadgetAnalyzer {

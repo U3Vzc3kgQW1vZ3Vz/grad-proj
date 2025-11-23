@@ -12,7 +12,7 @@ import java.util.Set;
  *
  * Dangerous methods:
  * - java.lang.Runtime.exec(String)
- * - java.lang.ProcessBuilder.<init>(String...)
+ * - java.lang.ProcessBuilder.&lt;init&gt;(String...)
  * - Custom exec-like methods
  */
 public class ExecSinkRule extends AbstractSinkRule {
