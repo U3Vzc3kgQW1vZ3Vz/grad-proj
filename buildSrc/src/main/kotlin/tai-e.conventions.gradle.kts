@@ -2,7 +2,6 @@ import kotlin.io.readText
 
 plugins {
     java
-    checkstyle
     jacoco
 }
 
@@ -49,23 +48,6 @@ tasks.withType<Javadoc> {
         addBooleanOption("html5", true)
         links("https://docs.oracle.com/en/java/javase/17/docs/api")
     }
-}
-
-// checks the code style after compilation
-//tasks.classes { finalizedBy("checkstyleMain") }
-//tasks.testClasses { finalizedBy("checkstyleTest") }
-// custom the report format
-checkstyle {
-    isShowViolations = false
-}
-tasks.withType<Checkstyle> {
-    // only xml need
-    reports {
-        xml.required.set(true)
-        html.required.set(false)
-    }
-    // report the error style to help developers fix it
-//    doLast { summarizeStyleViolations(this as Checkstyle)?.let(logger::warn) }
 }
 
 // jacoco
