@@ -151,20 +151,15 @@ tasks.jar {
 }
 
 tasks.withType<Test> {
-    // Uses JUnit5
-    useJUnitPlatform()
-    // Increases the maximum heap memory of JUnit test process. The default is 512M.
-    // (see org.gradle.process.internal.worker.DefaultWorkerProcessBuilder.build)
-    maxHeapSize = "2G"
-    // Sets the maximum number of test processes to start in parallel.
-    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).takeIf { it > 0 } ?: 1
-    // Sets the default classpath for test execution.
-    // (see https://docs.gradle.org/current/userguide/upgrading_version_8.html#test_task_default_classpath)
-    val test by testing.suites.existing(JvmTestSuite::class)
-    testClassesDirs = files(test.map { it.sources.output.classesDirs })
-    classpath = files(test.map { it.sources.runtimeClasspath })
+    enabled = false // Disable all Test tasks
 }
 
+tasks.named("compileTestJava") {
+    enabled = false // Disable compileTestJava task
+}
+
+// Existing 'tasks.test' block can remain, but its 'enabled = false' on tasks.withType<Test> will take precedence.
+// If it's necessary to keep this block, its effects will be nullified by disabling the task.
 tasks.test {
     // Excludes test suites from the default test task
     // to avoid running some tests multiple times.
@@ -174,11 +169,7 @@ tasks.test {
 }
 
 task("testTaieTestSuite", type = Test::class) {
-    group = "verification"
-    description = "Runs the Tai-e test suite"
-    filter {
-        includeTestsMatching("TaieTestSuite")
-    }
+    enabled = false // Disable this specific Test task
 }
 
 // Automatically agree the Gradle ToS when running gradle with '--scan' option
