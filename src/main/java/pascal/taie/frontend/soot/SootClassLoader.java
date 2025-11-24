@@ -26,9 +26,11 @@ import pascal.taie.World;
 import pascal.taie.language.classes.ClassHierarchy;
 import pascal.taie.language.classes.JClass;
 import pascal.taie.language.classes.JClassLoader;
+import pascal.taie.language.protocols.ProtocolManager;
 import pascal.taie.util.collection.Maps;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootMethod;
 
 import java.util.*;
 
@@ -46,6 +48,8 @@ public class SootClassLoader implements JClassLoader {
 
     private List<String> sources;
 
+    private final ProtocolManager protocolManager;
+
     public static Set<String> readSubSigList = Set.of(
             "void readObject(java.io.ObjectInputStream)",
             "void readExternal(java.io.ObjectInput)",
@@ -59,6 +63,7 @@ public class SootClassLoader implements JClassLoader {
         this.hierarchy = hierarchy;
         this.allowPhantom = allowPhantom;
         this.sources = sources;
+        this.protocolManager = new ProtocolManager();
     }
 
     @Override
@@ -84,11 +89,21 @@ public class SootClassLoader implements JClassLoader {
                 }
                 boolean isInvokeImpl = sootClass.implementsInterface("java.lang.reflect.InvocationHandler");
                 jclass.getDeclaredMethods().forEach(m -> {
-                    if (sources.contains(m.getSignature()) ||
-                            (sources.contains("serializable") && readSubSigList.contains(m.getSubsignature().toString()))) {
+                    String methodSig = m.getSignature();
+                    String methodSubSig = m.getSubsignature().toString();
+
+                    if (sources.contains(methodSig)) {
                         World.get().addGCEntry(m);
+                    } else if (sources.contains("serializable") && readSubSigList.contains(methodSubSig)) {
+                        World.get().addGCEntry(m);
+                    } else {
+                        SootMethod sootMethod = sootClass.getMethodUnsafe(methodSubSig);
+                        if (sootMethod != null && protocolManager.isMagicMethod(sootMethod, sootClass)) {
+                            World.get().addGCEntry(m,protocolManager,sootClass,sootMethod);
+                        }
                     }
-                    if (m.getSubsignature().toString().equals(invokeSubSig) && isInvokeImpl) {
+
+                    if (methodSubSig.equals(invokeSubSig) && isInvokeImpl) {
                         World.get().addInvocationHandlerMethod(m);
                     }
                 });

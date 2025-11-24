@@ -31,11 +31,14 @@ import pascal.taie.ir.exp.Var;
 import pascal.taie.language.classes.ClassHierarchy;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.natives.NativeModel;
+import pascal.taie.language.protocols.ProtocolManager;
 import pascal.taie.language.type.ClassType;
 import pascal.taie.language.type.Type;
 import pascal.taie.language.type.TypeSystem;
 import pascal.taie.util.AbstractResultHolder;
 import pascal.taie.util.collection.Sets;
+import soot.SootClass;
+import soot.SootMethod;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -215,6 +218,14 @@ public final class World extends AbstractResultHolder
                 m.setSource();
                 m.getDeclaringClass().setSerializable();
             }
+        }
+    }
+    public void addGCEntry(JMethod m, ProtocolManager protocolManager, SootClass sootClass,SootMethod sootMethod) {
+        if (!GCEntries.contains(m)) {
+            GCEntries.add(m);
+                m.setSource();
+                System.out.println("[magic] "+sootMethod.getName());
+                m.getDeclaringClass().setSerializable();
         }
     }
 

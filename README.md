@@ -1,5 +1,3 @@
-
-
 # Build project
 ```bash
 ./gradlew build

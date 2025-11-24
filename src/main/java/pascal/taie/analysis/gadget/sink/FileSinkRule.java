@@ -8,13 +8,13 @@ import pascal.taie.language.type.Type;
 import java.util.Set;
 
 /**
- * Detects file writing sinks.
+ * Detects file writing and deletion sinks.
  * Adapted from jdd's FileCheckRule for Pascal Taie.
  *
- * Dangerous methods:
- * - java.io.FileOutputStream.write(byte[])
- * - java.io.OutputStream.write(byte[])
- * - File write operations with tainted content
+ * Dangerous methods from priori-knowledge.yml:
+ * - java.io.FileOutputStream.write(byte[]) - File write
+ * - java.io.OutputStream.write(byte[]) - Stream write
+ * - java.io.File.delete() - File deletion
  */
 public class FileSinkRule extends AbstractSinkRule {
 
@@ -24,8 +24,12 @@ public class FileSinkRule extends AbstractSinkRule {
 
     @Override
     public void initialize() {
+        // From priori-knowledge.yml:
+        // - { method: "<java.io.FileOutputStream: void write(byte[])>", index: [base,0], type: "FILE_WRITE" }
+        // - { method: "<java.io.OutputStream: void write(byte[])>", index: [base,0], type: "FILE_WRITE" }
+        // - { method: "<java.io.OutputStream: void write(byte[],int,int)>", index: [base,0], type: "FILE_WRITE" }
+
         // Find ALL implementations of write(byte[]) across FileOutputStream and OutputStream hierarchies
-        // This matches the jdd approach using ClassRelationshipUtils.getAllSubMethodSigs
         addAllSubclassSignatures("<java.io.FileOutputStream: void write(byte[])>");
         addAllSubclassSignatures("<java.io.OutputStream: void write(byte[])>");
 
@@ -36,11 +40,26 @@ public class FileSinkRule extends AbstractSinkRule {
         // And write(int) implementations
         addAllSubclassSignatures("<java.io.FileOutputStream: void write(int)>");
         addAllSubclassSignatures("<java.io.OutputStream: void write(int)>");
+
+        // From priori-knowledge.yml:
+        // - { method: "<java.io.File: boolean delete()>", index: [base], type: "FILE" }
+        addRiskySignature("<java.io.File: boolean delete()>");
+        addRiskySignature("<java.io.File: void deleteOnExit()>");
     }
 
     @Override
     protected boolean checkTaintedArguments(Invoke invoke, Set<Var> taintedVars) {
+        String methodSig = invoke.getInvokeExp().getMethodRef().resolve().getSignature();
+
+        // For File.delete() or deleteOnExit(), only check if the File object (receiver) is tainted
+        // index: [base] means check the receiver
+        if (methodSig.contains("java.io.File: boolean delete()") ||
+            methodSig.contains("java.io.File: void deleteOnExit()")) {
+            return isReceiverTainted(invoke, taintedVars);
+        }
+
         // For file write operations, check:
+        // index: [base, 0] means check both receiver and first argument
         // 1. The content being written (argument) is tainted
         // 2. The file object (receiver) is tainted
 
@@ -67,6 +86,6 @@ public class FileSinkRule extends AbstractSinkRule {
 
     @Override
     public String getDescription() {
-        return "File writing sink (FileOutputStream, OutputStream)";
+        return "File operations - write, delete (FileOutputStream, OutputStream, File)";
     }
 }
