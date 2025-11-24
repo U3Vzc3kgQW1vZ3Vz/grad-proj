@@ -38,17 +38,17 @@ import java.util.Set;
 /**
  * Protocol rule for JSON serialization frameworks (Jackson, Gson, Fastjson).
  *
- * To reduce false positives, this protocol only considers methods as Entry Methods if:
+ * Entry methods that start the deserialization process in JSON frameworks:
+ * - <init>(): Constructors (annotated with @JsonCreator or no-arg default)
+ * - set*(): Setter methods for property writing during deserialization
+ * - get*()/is*(): Collection getters (Map/List/Set/Collection) that may trigger side effects
+ * - Static factory methods: valueOf, of, from, parse, etc. (annotated or matching naming patterns)
+ *
+ * To reduce false positives, methods are only considered entry methods if:
  * 1. The class has JSON-related annotations, OR
  * 2. The method has JSON-related annotations, OR
  * 3. A corresponding field has JSON-related annotations, OR
  * 4. Aggressive mode is enabled (checks all public getters/setters)
- *
- * Improvements:
- * - Expanded annotation sets for Jackson, Fastjson, and added Gson annotations.
- * - Added support for field-level annotations.
- * - Added detection for boolean getters (isXxx).
- * - Added default (no-arg) public constructors as potential entry points.
  *
  * References:
  * - Jackson Annotations: https://www.baeldung.com/jackson-annotations
@@ -176,8 +176,11 @@ public class JsonProtocol implements ProtocolRule {
             }
         }
 
-        // Only proceed with getter/setter/constructor detection if class is applicable or aggressive mode
-        if (!AGGRESSIVE_MODE && !isApplicableToClass(declaringClass)) {
+        // Only detect JavaBean-style methods (setters/getters/constructors) if:
+        // 1. The class actually has JSON annotations (indicating it's used with JSON frameworks), OR
+        // 2. Aggressive mode is enabled
+        // This prevents false positives from arbitrary UI components, domain objects, etc.
+        if (!AGGRESSIVE_MODE && !hasJsonAnnotation(declaringClass)) {
             return false;
         }
 
@@ -187,26 +190,24 @@ public class JsonProtocol implements ProtocolRule {
 
         String methodName = method.getName();
 
-        // Getter methods (getXxx or isXxx) - Restricted for deserialization context
-        if (isGetterMethod(method, methodName)) {
-            return true;
-        }
-
-        // Setter methods (setXxx)
+        // Setter methods - Entry methods for property writing during deserialization
         if (isSetterMethod(method, methodName)) {
             return true;
         }
 
-        // Static factory methods (common in Jackson @JsonCreator)
+        // Collection getter methods - Entry methods that may trigger side effects during deserialization
+        if (isGetterMethod(method, methodName)) {
+            return true;
+        }
+
+        // Static factory methods - Entry methods for object creation (common in Jackson @JsonCreator)
         if (isStaticFactoryMethod(method, methodName)) {
             return true;
         }
 
-        // Constructors: Annotated or default no-arg if class applicable (NEW: added default constructors)
-        if (methodName.equals("<init>")) {
-            if (hasJsonAnnotation(method) || (method.getParameterCount() == 0)) {
-                return true;
-            }
+        // Constructors - Entry methods for object instantiation (default no-arg)
+        if (methodName.equals("<init>") && method.getParameterCount() == 0) {
+            return true;
         }
 
         return false;
@@ -310,13 +311,13 @@ public class JsonProtocol implements ProtocolRule {
         boolean isBooleanGetter = methodName.startsWith("is")
                 && methodName.length() > 2
                 && method.getParameterCount() == 0
-                && method.getReturnType() instanceof BooleanType;  // NEW: added boolean isXxx
+                && method.getReturnType() instanceof BooleanType;
 
         if (!isStandardGetter && !isBooleanGetter) {
             return false;
         }
 
-        // Heuristic for Deserialization (unchanged, but now field annotation check handles more cases)
+        // Only consider collection getters as entry methods (may trigger side effects during deserialization)
         String returnType = method.getReturnType().toString();
         return returnType.contains("java.util.Map") ||
                 returnType.contains("java.util.List") ||

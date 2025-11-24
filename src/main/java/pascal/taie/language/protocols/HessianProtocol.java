@@ -39,8 +39,12 @@ import java.util.Set;
  */
 public class HessianProtocol implements ProtocolRule {
 
+    /**
+     * Entry methods that start the deserialization process in Hessian:
+     * - readResolve: Called after object deserialization to replace the object
+     * - HashMap.put: Called during HashMap deserialization (handled separately in isMagicMethod)
+     */
     private static final Set<String> ENTRY_METHOD_SUBSIGS = Set.of(
-            // Hessian respects Java serialization replacement methods (Entry Point)
             "java.lang.Object readResolve()"
     );
 
@@ -53,10 +57,9 @@ public class HessianProtocol implements ProtocolRule {
     public boolean isMagicMethod(SootMethod method, SootClass declaringClass) {
         String subSig = method.getSubSignature();
 
-        // Map.put() is the actual Entry Method called by the Hessian framework
-        // when deserializing a Map. We strictly limit this to java.util.HashMap
-        // to avoid false positives and rely on the analyzer to trace the
-        // subsequent call to hashCode().
+        // HashMap.put() is a deserialization entry method called by Hessian framework
+        // when deserializing a HashMap. We strictly limit this to java.util.HashMap
+        // to avoid false positives.
         if ("java.lang.Object put(java.lang.Object,java.lang.Object)".equals(subSig)) {
             return isHashMapOrSubclass(declaringClass);
         }
@@ -76,6 +79,10 @@ public class HessianProtocol implements ProtocolRule {
             return true;
         }
         if (sootClass.hasSuperclass()) {
+            if(sootClass.getSuperclass().getName().equals("java.util.HashMap")){
+                System.out.println(sootClass);
+            }
+            
             return isHashMapOrSubclass(sootClass.getSuperclass());
         }
         return false;

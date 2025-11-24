@@ -38,22 +38,24 @@ import java.util.Set;
 public class JdkSerializationProtocol implements ProtocolRule {
 
     /**
-     * Entry methods for Serializable interface:
-     * - readObject: Custom deserialization logic (Entry Point)
-     * - readObjectNoData: Handle class evolution when superclass is not serializable (Entry Point)
-     * - readResolve: Replace deserialized object (Entry Point)
-     * - validateObject: Validate object state after deserialization (Entry Point)
+     * Entry methods that start the deserialization process:
      *
-     * Entry methods for Externalizable interface:
-     * - readExternal: Complete control over deserialization (Entry Point)
+     * For Serializable interface:
+     * - readObject: Custom deserialization logic called by ObjectInputStream
+     * - readObjectNoData: Handle class evolution when superclass is not serializable
+     * - readResolve: Replace deserialized object after readObject completes
+     * - validateObject: Validate object state after deserialization (used with ObjectInputValidation)
+     *
+     * For Externalizable interface:
+     * - readExternal: Complete control over deserialization, called by ObjectInputStream
      */
     private static final Set<String> ENTRY_METHOD_SUBSIGS = Set.of(
-            // Serializable methods
+            // Serializable deserialization entry methods
             "void readObject(java.io.ObjectInputStream)",
             "java.lang.Object readResolve()",
             "void readObjectNoData()",
             "void validateObject()",
-            // Externalizable methods
+            // Externalizable deserialization entry method
             "void readExternal(java.io.ObjectInput)"
     );
 

@@ -45,19 +45,17 @@ import java.util.Set;
 public class AndroidParcelableProtocol implements ProtocolRule {
 
     /**
-     * Required Parcelable methods:
-     * - writeToParcel: Serialize object to Parcel
-     * - describeContents: Return bitmask indicating special object types
-     * - createFromParcel: Part of CREATOR, reconstructs object from Parcel
-     * - newArray: Part of CREATOR, creates array of Parcelable
+     * Entry method that starts the deserialization process in Android Parcelable:
+     * - createFromParcel: Reconstructs object from Parcel (part of CREATOR field)
+     *
+     * Note: The following are NOT entry methods:
+     * - writeToParcel: Serialization method (not deserialization)
+     * - describeContents: Metadata method (not deserialization)
+     * - newArray: Array creation utility (not deserialization entry)
      */
-    private static final Set<String> MAGIC_METHOD_SUBSIGS = Set.of(
-            // Instance methods
-            "void writeToParcel(android.os.Parcel,int)",
-            "int describeContents()",
-            // CREATOR methods (static in CREATOR field)
-            "java.lang.Object createFromParcel(android.os.Parcel)",
-            "java.lang.Object[] newArray(int)"
+    private static final Set<String> ENTRY_METHOD_SUBSIGS = Set.of(
+            // CREATOR deserialization entry method
+            "java.lang.Object createFromParcel(android.os.Parcel)"
     );
 
     @Override
@@ -67,7 +65,7 @@ public class AndroidParcelableProtocol implements ProtocolRule {
 
     @Override
     public boolean isMagicMethod(SootMethod method, SootClass declaringClass) {
-        return MAGIC_METHOD_SUBSIGS.contains(method.getSubSignature());
+        return ENTRY_METHOD_SUBSIGS.contains(method.getSubSignature());
     }
 
     @Override

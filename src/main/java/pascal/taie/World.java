@@ -224,7 +224,7 @@ public final class World extends AbstractResultHolder
         if (!GCEntries.contains(m)) {
             GCEntries.add(m);
                 m.setSource();
-                System.out.println("[magic] "+sootMethod.getName());
+                // System.out.println("[magic] "+sootMethod.getName());
                 m.getDeclaringClass().setSerializable();
         }
     }

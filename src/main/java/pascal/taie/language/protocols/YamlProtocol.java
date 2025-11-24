@@ -32,15 +32,12 @@ import soot.VoidType;
  * SnakeYAML uses JavaBean conventions for classes explicitly used in YAML deserialization.
  * To reduce false positives, this is more conservative than JSON protocol.
  *
- * Note: Unlike JSON frameworks, SnakeYAML doesn't have widespread class-level annotations,
- * so detection is primarily based on:
- * - Classes used with Yaml.load() / Yaml.loadAs()
- * - Presence of YAML-related parent classes or interfaces
- * - Conservative mode (disabled by default to avoid false positives)
+ * Entry methods that start the deserialization process in SnakeYAML:
+ * - <init>(): No-arg constructors for object instantiation
+ * - set*(): Setters for property writing during deserialization
+ * - get*(): Collection getters (Map/Collection) that may trigger side effects
  *
- * SnakeYAML invokes:
- * - No-arg constructors for object instantiation (Entry Point)
- * - Setters for property writing during deserialization (Entry Point)
+ * Note: Detection is disabled by default (ENABLE_YAML_DETECTION = false) to avoid false positives.
  *
  * References:
  * - SnakeYAML Guide: https://www.baeldung.com/java-snake-yaml
@@ -70,26 +67,25 @@ public class YamlProtocol implements ProtocolRule {
 
         String methodName = method.getName();
 
-        // No-arg constructor
+        // No-arg constructor - Entry method for object instantiation
         if (methodName.equals("<init>") && method.getParameterCount() == 0) {
             return true;
         }
 
-        // Getter methods (Only used if no setter exists, or for Maps/Collections)
-        if (methodName.startsWith("get") && methodName.length() > 3
-                && method.getParameterCount() == 0
-                && !method.getReturnType().equals(VoidType.v())) {
-             // Only consider collection getters as potential side-effect entry points
-             // Logic similar to JSON
-             String returnType = method.getReturnType().toString();
-             return returnType.contains("java.util.Map") || returnType.contains("java.util.Collection");
-        }
-
-        // Setter methods
+        // Setter methods - Entry methods for property writing during deserialization
         if (methodName.startsWith("set") && methodName.length() > 3
                 && method.getParameterCount() == 1
                 && method.getReturnType().equals(VoidType.v())) {
             return true;
+        }
+
+        // Collection getter methods - Entry methods that may trigger side effects
+        // Only consider getters that return Map/Collection
+        if (methodName.startsWith("get") && methodName.length() > 3
+                && method.getParameterCount() == 0
+                && !method.getReturnType().equals(VoidType.v())) {
+             String returnType = method.getReturnType().toString();
+             return returnType.contains("java.util.Map") || returnType.contains("java.util.Collection");
         }
 
         return false;

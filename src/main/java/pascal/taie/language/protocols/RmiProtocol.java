@@ -49,11 +49,10 @@ public class RmiProtocol implements ProtocolRule {
 
     @Override
     public boolean isMagicMethod(SootMethod method, SootClass declaringClass) {
-        // RMI relies on JDK serialization (readObject) for parameter unmarshalling.
-        // The actual entry points for gadget chains are the readObject methods of the arguments,
-        // which are already covered by JdkSerializationProtocol.
-        // Marking Remote methods as magic is incorrect for gadget detection as they are
-        // application endpoints, not gadget triggers.
+        // RMI does not have its own deserialization entry methods.
+        // It relies on JDK serialization (readObject, readExternal, etc.) for parameter unmarshalling.
+        // The actual deserialization entry points are covered by JdkSerializationProtocol.
+        // Remote interface methods are application endpoints, not deserialization entry methods.
         return false;
     }
 

@@ -31,8 +31,13 @@ import java.util.Set;
  * Protocol rule for Kryo binary serialization framework.
  *
  * Kryo supports custom serialization through:
- * - KryoSerializable interface with write() and read() methods
- * - No-arg constructors for object instantiation
+ * - KryoSerializable interface with read() method for custom deserialization
+ * - No-arg constructors for object instantiation (but only for classes actually used with Kryo)
+ *
+ * To reduce false positives, this protocol uses conservative detection:
+ * - Only detects classes that implement KryoSerializable, OR
+ * - Classes that implement Serializable AND have no-arg constructor (common Kryo pattern), OR
+ * - Aggressive mode is enabled
  *
  * References:
  * - Kryo Documentation: https://github.com/EsotericSoftware/kryo
@@ -40,16 +45,18 @@ import java.util.Set;
  */
 public class KryoProtocol implements ProtocolRule {
 
+    // Enable to detect all classes with no-arg constructors (may have many false positives)
+    private static final boolean AGGRESSIVE_MODE = false;
+
     /**
-     * Magic methods for KryoSerializable interface:
-     * - write: Custom serialization to Output stream
-     * - read: Custom deserialization from Input stream
+     * Entry methods that start the deserialization process in Kryo:
+     * - read: Custom deserialization from Input stream (KryoSerializable interface)
+     * - <init>(): No-arg constructor used for object instantiation during deserialization
      */
-    private static final Set<String> MAGIC_METHOD_SUBSIGS = Set.of(
-            // KryoSerializable interface methods
-            "void write(com.esotericsoftware.kryo.Kryo,com.esotericsoftware.kryo.io.Output)",
+    private static final Set<String> ENTRY_METHOD_SUBSIGS = Set.of(
+            // KryoSerializable deserialization entry method
             "void read(com.esotericsoftware.kryo.Kryo,com.esotericsoftware.kryo.io.Input)",
-            // No-arg constructor used for instantiation
+            // No-arg constructor for instantiation
             "void <init>()"
     );
 
@@ -60,12 +67,68 @@ public class KryoProtocol implements ProtocolRule {
 
     @Override
     public boolean isMagicMethod(SootMethod method, SootClass declaringClass) {
-        return MAGIC_METHOD_SUBSIGS.contains(method.getSubSignature());
+        String subSig = method.getSubSignature();
+
+        // Always detect KryoSerializable.read() method
+        if ("void read(com.esotericsoftware.kryo.Kryo,com.esotericsoftware.kryo.io.Input)".equals(subSig)) {
+            return true;
+        }
+
+        // Only detect no-arg constructors if the class is applicable for Kryo
+        if ("void <init>()".equals(subSig)) {
+            return AGGRESSIVE_MODE || isApplicableToClass(declaringClass);
+        }
+
+        return false;
     }
 
     @Override
     public boolean isApplicableToClass(SootClass sootClass) {
-        return sootClass.implementsInterface("com.esotericsoftware.kryo.KryoSerializable")
-                || true; // Kryo can serialize any class with no-arg constructor
+        // Classes that implement KryoSerializable are definitely used with Kryo
+        if (sootClass.implementsInterface("com.esotericsoftware.kryo.KryoSerializable")) {
+            return true;
+        }
+
+        // Conservative heuristic: Kryo is often used with Serializable classes as DTOs
+        // This reduces false positives from UI components, frameworks, etc.
+        if (sootClass.implementsInterface("java.io.Serializable")) {
+            // Additional heuristic: exclude common UI/framework packages
+            String className = sootClass.getName();
+            if (isLikelyUIOrFrameworkClass(className)) {
+                return false;
+            }
+            return true;
+        }
+
+        return AGGRESSIVE_MODE;
+    }
+
+    /**
+     * Heuristic to exclude common UI components and framework classes that are
+     * unlikely to be used with Kryo for serialization.
+     */
+    private boolean isLikelyUIOrFrameworkClass(String className) {
+        // Vaadin UI components
+        if (className.startsWith("com.vaadin.ui.")) {
+            return true;
+        }
+
+        // Swing/AWT UI components
+        if (className.startsWith("javax.swing.") || className.startsWith("java.awt.")) {
+            return true;
+        }
+
+        // Android UI components
+        if (className.startsWith("android.widget.") || className.startsWith("android.view.")) {
+            return true;
+        }
+
+        // Spring Framework internal classes
+        if (className.startsWith("org.springframework.") && !className.contains(".dto.")
+                && !className.contains(".model.") && !className.contains(".entity.")) {
+            return true;
+        }
+
+        return false;
     }
 }

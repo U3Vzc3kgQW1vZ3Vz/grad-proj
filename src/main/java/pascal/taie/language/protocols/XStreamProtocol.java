@@ -41,12 +41,11 @@ import java.util.Set;
 public class XStreamProtocol implements ProtocolRule {
 
     /**
-     * XStream supports:
-     * - Java serialization entry methods (readObject, writeObject, readResolve, writeReplace)
-     * - JavaBean properties via getters/setters (Disabled by default to avoid false positives)
+     * Entry methods that start the deserialization process in XStream:
+     * - readObject: Custom deserialization logic (Java serialization method respected by XStream)
+     * - readResolve: Object replacement after deserialization
      */
     private static final Set<String> ENTRY_METHOD_SUBSIGS = Set.of(
-            // Java serialization methods respected by XStream
             "void readObject(java.io.ObjectInputStream)",
             "java.lang.Object readResolve()"
     );
