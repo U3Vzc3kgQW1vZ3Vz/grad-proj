@@ -30,19 +30,25 @@ public class SSRFSinkRule extends AbstractSinkRule {
     public void initialize() {
         // From priori-knowledge.yml:
         // - { method: "<java.net.URL: java.net.URLConnection openConnection()>", index: [ base ], type: "SSRF" }
-        addRiskySignature("<java.net.URL: java.net.URLConnection openConnection()>");
-        addRiskySignature("<java.net.URL: java.net.URLConnection openConnection(java.net.Proxy)>");
-        addRiskySignature("<java.net.URL: java.io.InputStream openStream()>");
+        // URL methods - use subclass finding to catch all implementations
+        addAllSubclassSignatures("<java.net.URL: java.net.URLConnection openConnection()>");
+        addAllSubclassSignatures("<java.net.URL: java.net.URLConnection openConnection(java.net.Proxy)>");
+        addAllSubclassSignatures("<java.net.URL: java.io.InputStream openStream()>");
+        addAllSubclassSignatures("<java.net.URL: java.lang.Object getContent()>");
 
         // From priori-knowledge.yml:
         // - { method: "<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.util.Properties,java.lang.Class)>", index: [ 0 ], type: "SSRF" }
-        addRiskySignature("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String)>");
-        addRiskySignature("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.util.Properties)>");
-        addRiskySignature("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.lang.String,java.lang.String)>");
-        addRiskySignature("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.util.Properties,java.lang.Class)>");
+        // DriverManager methods - use subclass finding
+        addAllSubclassSignatures("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String)>");
+        addAllSubclassSignatures("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.util.Properties)>");
+        addAllSubclassSignatures("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.lang.String,java.lang.String)>");
+        addAllSubclassSignatures("<java.sql.DriverManager: java.sql.Connection getConnection(java.lang.String,java.util.Properties,java.lang.Class)>");
 
         // Additional common SSRF vectors
         addAllSubclassSignatures("<java.net.HttpURLConnection: void connect()>");
+        addAllSubclassSignatures("<java.net.URLConnection: void connect()>");
+        addAllSubclassSignatures("<java.net.URLConnection: java.io.InputStream getInputStream()>");
+        addAllSubclassSignatures("<java.net.URLConnection: java.io.OutputStream getOutputStream()>");
     }
 
     @Override
