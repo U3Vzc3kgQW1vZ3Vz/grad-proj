@@ -88,10 +88,6 @@ public class GCCollectorAfterProcess implements Plugin {
         gadgetAnalyzer.registerSinkRule(new ClassLoaderSinkRule());
         gadgetAnalyzer.registerSinkRule(new SecondDeserializationSinkRule());
         gadgetAnalyzer.registerSinkRule(new CustomSinkRule());
-        gadgetAnalyzer.registerSinkRule(new SSRFSinkRule());
-        gadgetAnalyzer.registerSinkRule(new FileReadSinkRule());
-        gadgetAnalyzer.registerSinkRule(new CodeInjectionSinkRule());
-        gadgetAnalyzer.registerSinkRule(new RMISinkRule());
 
         logger.info("Initialized {} sink rules",
             gadgetAnalyzer.getFragmentContainer().getSinkRules().size());

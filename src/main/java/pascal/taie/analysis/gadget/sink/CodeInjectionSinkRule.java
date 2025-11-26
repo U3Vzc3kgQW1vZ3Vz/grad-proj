@@ -31,29 +31,27 @@ public class CodeInjectionSinkRule extends AbstractSinkRule {
     public void initialize() {
         // From priori-knowledge.yml:
         // - { method: "<javax.el.ValueExpression: java.lang.Object getValue(javax.el.ELContext)>", index: [base], type: "EL_INJECTION" }
-        addAllSubclassSignatures("<javax.el.ValueExpression: java.lang.Object getValue(javax.el.ELContext)>");
-        addAllSubclassSignatures("<javax.el.MethodExpression: java.lang.Object invoke(javax.el.ELContext,java.lang.Object[])>");
+        addRiskySignature("<javax.el.ValueExpression: java.lang.Object getValue(javax.el.ELContext)>");
+        addRiskySignature("<javax.el.MethodExpression: java.lang.Object invoke(javax.el.ELContext,java.lang.Object[])>");
 
         // From priori-knowledge.yml:
         // - { method: "<clojure.lang.Compiler: java.lang.Object eval(java.lang.Object)>", index: [0], type: "CODE_INJECTION" }
-        addAllSubclassSignatures("<clojure.lang.Compiler: java.lang.Object eval(java.lang.Object)>");
-        addAllSubclassSignatures("<clojure.lang.Compiler: java.lang.Object eval(java.lang.Object,boolean)>");
+        addRiskySignature("<clojure.lang.Compiler: java.lang.Object eval(java.lang.Object)>");
+        addRiskySignature("<clojure.lang.Compiler: java.lang.Object eval(java.lang.Object,boolean)>");
 
         // From priori-knowledge.yml:
         // - { method: "<javax.script.ScriptEngineManager: void <init>(java.lang.ClassLoader)>", index: [0], type: "SCRIPT_ENGINE" }
-        addAllSubclassSignatures("<javax.script.ScriptEngineManager: void <init>(java.lang.ClassLoader)>");
-        // ScriptEngine is an interface, use subsignature for broad matching
-        addRiskySubsignature("java.lang.Object eval(java.lang.String)");
-        addRiskySubsignature("java.lang.Object eval(java.io.Reader)");
+        addRiskySignature("<javax.script.ScriptEngineManager: void <init>(java.lang.ClassLoader)>");
+        addRiskySignature("<javax.script.ScriptEngine: java.lang.Object eval(java.lang.String)>");
+        addRiskySignature("<javax.script.ScriptEngine: java.lang.Object eval(java.io.Reader)>");
 
         // From priori-knowledge.yml:
         // - { method: "<org.python.core.PyBaseCode: org.python.core.PyObject call(...)>", index: [base,1], type: "CODE_INJECTION" }
-        // PyBaseCode methods - use subclass finding
-        addAllSubclassSignatures("<org.python.core.PyBaseCode: org.python.core.PyObject call(org.python.core.ThreadState,org.python.core.PyObject[],java.lang.String[],org.python.core.PyObject,org.python.core.PyObject[],org.python.core.PyObject)>");
-        addAllSubclassSignatures("<org.python.core.PyBaseCode: org.python.core.PyObject call(org.python.core.ThreadState)>");
-        addAllSubclassSignatures("<org.python.core.PyBaseCode: org.python.core.PyObject call(org.python.core.ThreadState,org.python.core.PyObject)>");
+        addRiskySubsignature("org.python.core.PyObject call(org.python.core.ThreadState,org.python.core.PyObject[],java.lang.String[],org.python.core.PyObject,org.python.core.PyObject[],org.python.core.PyObject)");
+        addRiskySubsignature("org.python.core.PyObject call(org.python.core.ThreadState)");
+        addRiskySubsignature("org.python.core.PyObject call(org.python.core.ThreadState,org.python.core.PyObject)");
 
-        // Additional common code injection vectors - use subsignatures for broad matching
+        // Additional common code injection vectors
         // Groovy
         addRiskySubsignature("java.lang.Object evaluate(java.lang.String)");
         addRiskySubsignature("java.lang.Class parseClass(java.lang.String)");
@@ -66,7 +64,7 @@ public class CodeInjectionSinkRule extends AbstractSinkRule {
         addRiskySubsignature("java.lang.Object getValue(java.lang.Object,java.lang.Object)");
         addRiskySubsignature("void setValue(java.lang.Object,java.lang.Object,java.lang.Object)");
 
-        // MVEL - these overlap with Clojure Compiler.eval, but keep for clarity
+        // MVEL
         addRiskySubsignature("java.lang.Object eval(java.lang.String)");
         addRiskySubsignature("java.lang.Object eval(java.lang.String,java.lang.Object)");
     }
