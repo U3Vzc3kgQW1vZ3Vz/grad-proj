@@ -81,7 +81,6 @@ public class Main {
     private static Options processArgs(String... args) {
         Options options = Options.parse(args);
         if (options.isPrintHelp() || args.length == 0) {
-            options.printHelp();
             System.exit(0);
         }
         return options;

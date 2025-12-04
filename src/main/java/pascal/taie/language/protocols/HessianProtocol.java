@@ -79,10 +79,6 @@ public class HessianProtocol implements ProtocolRule {
             return true;
         }
         if (sootClass.hasSuperclass()) {
-            if(sootClass.getSuperclass().getName().equals("java.util.HashMap")){
-                System.out.println(sootClass);
-            }
-            
             return isHashMapOrSubclass(sootClass.getSuperclass());
         }
         return false;

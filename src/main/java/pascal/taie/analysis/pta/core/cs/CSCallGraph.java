@@ -89,7 +89,7 @@ public class CSCallGraph extends AbstractCallGraph<CSCallSite, CSMethod> {
      * @return true if the call graph changed as a result of the call,
      * otherwise false.
      */
-    public boolean addEdge(Edge<CSCallSite, CSMethod> edge) {
+    public synchronized boolean addEdge(Edge<CSCallSite, CSMethod> edge) {
         if (Objects.equals(getCaller(edge), edge.getCallee().getMethod())) return false; // no impact on gc operation
         Set<Edge<CSCallSite, CSMethod>> edges = edge.getCallee().getEdges();
 
@@ -182,12 +182,12 @@ public class CSCallGraph extends AbstractCallGraph<CSCallSite, CSMethod> {
         throw new UnsupportedOperationException();
     }
 
-    public CSMethod getCSMethod(String methodSig) {
+    public synchronized CSMethod getCSMethod(String methodSig) {
         JMethod method = World.get().getClassHierarchy().getMethod(methodSig);
         return getCSMethod(method);
     }
 
-    public CSMethod getCSMethod(JMethod method) {
+    public synchronized CSMethod getCSMethod(JMethod method) {
         return csManager.getCSMethod(emptyContext, method);
     }
 

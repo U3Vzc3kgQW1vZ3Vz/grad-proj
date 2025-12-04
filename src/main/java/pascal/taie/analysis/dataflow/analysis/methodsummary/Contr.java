@@ -67,7 +67,7 @@ public class Contr {
             setTransient(sField.getField());
             setSerializable(sField.getField().getType());
         }
-        if (this.type.getName().equals("java.lang.reflect.Method")) { // TODO improve this
+        if (this.type.getName().equals("java.lang.reflect.Method")) {
             JMethod m = getPointerMethod(pointer);
             if (m != null && m.getDeclaringClass().isSerializable() && !isSerializable()) setSerializable();
         }

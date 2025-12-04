@@ -37,6 +37,14 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("javax.servlet:javax.servlet-api:4.0.1")
 
+    // Dependencies for exploit POC examples (optional, for educational purposes)
+    // These are compileOnly so they don't pollute the production classpath
+    compileOnly("org.apache.groovy:groovy:4.0.15")
+    compileOnly("org.apache.groovy:groovy-all:4.0.15")
+    compileOnly("com.mchange:c3p0:0.9.5.5")
+    compileOnly("commons-beanutils:commons-beanutils:1.9.4")
+    compileOnly("com.vaadin:vaadin-server:8.14.3")
+
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.platform:junit-platform-suite")
@@ -150,31 +158,190 @@ tasks.jar {
     destinationDirectory.set(rootProject.layout.buildDirectory)
 }
 
-tasks.withType<Test> {
-    enabled = false // Disable all Test tasks
-}
-
-tasks.named("compileTestJava") {
-    enabled = false // Disable compileTestJava task
-}
-
-// Existing 'tasks.test' block can remain, but its 'enabled = false' on tasks.withType<Test> will take precedence.
-// If it's necessary to keep this block, its effects will be nullified by disabling the task.
-tasks.test {
-    // Excludes test suites from the default test task
-    // to avoid running some tests multiple times.
-    filter {
-        excludeTestsMatching("*TestSuite")
+// Enable tests for verification
+tasks.withType<JavaCompile>().configureEach {
+    if (name == "compileTestJava") {
+        enabled = true
+        // Only compile our test to avoid errors in existing tests
+        include("pascal/taie/analysis/dataflow/analysis/methodsummary/plugin/ChainDeduplicatorTest.java")
+    }
+    if (name == "compileJava") {
+        // Exclude example exploit POCs from main build (they require specific vulnerable library versions)
+        exclude("pascal/taie/analysis/gadget/examples/**")
     }
 }
 
-task("testTaieTestSuite", type = Test::class) {
-    enabled = false // Disable this specific Test task
+tasks.withType<Test> {
+    enabled = true
+    useJUnitPlatform()
 }
 
-// Automatically agree the Gradle ToS when running gradle with '--scan' option
-extensions.findByName("buildScan")?.withGroovyBuilder {
-    setProperty("termsOfServiceUrl", "https://gradle.com/terms-of-service")
-    setProperty("termsOfServiceAgree", "yes")
+// Task to compile exploit examples separately
+tasks.register<JavaCompile>("compileExamples") {
+    group = "build"
+    description = "Compiles exploit POC examples separately"
+    source = fileTree("src/main/java/pascal/taie/analysis/gadget/examples")
+    classpath = sourceSets.main.get().compileClasspath
+    destinationDirectory.set(file("$buildDir/classes/java/examples"))
 }
 
+// Task to compile only Groovy examples
+tasks.register<JavaCompile>("compileGroovyExample") {
+    group = "build"
+    description = "Compiles only Groovy-related exploit examples"
+    source = fileTree("src/main/java/pascal/taie/analysis/gadget/examples") {
+        include("Groovy*.java")
+    }
+    classpath = sourceSets.main.get().compileClasspath
+    destinationDirectory.set(file("$buildDir/classes/java/examples"))
+}
+
+// Task to run Groovy exploit example
+tasks.register<JavaExec>("runGroovyExample") {
+    group = "examples"
+    description = "Runs the Groovy custom sink exploit example"
+    dependsOn("compileGroovyExample")
+
+    // Build classpath with all required dependencies
+    classpath = files(
+        "$buildDir/classes/java/examples",
+        configurations.compileClasspath.get()
+    )
+
+    mainClass.set("pascal.taie.analysis.gadget.examples.GroovyCustomSinkExploit")
+
+    // Java module system options for reflection
+    jvmArgs = listOf(
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/sun.reflect.annotation=ALL-UNNAMED",
+        "--add-opens=java.management/javax.management=ALL-UNNAMED"
+    )
+}
+
+// ============================================================================
+// Individual Exploit Example Tasks
+// ============================================================================
+
+// Helper function to create exploit example tasks
+fun createExampleTask(
+    taskName: String,
+    className: String,
+    description: String,
+    includePattern: String = "${className}.java"
+) {
+    // Compile task
+    tasks.register<JavaCompile>("compile${taskName}") {
+        group = "build"
+        this.description = "Compiles ${className}"
+        source = fileTree("src/main/java/pascal/taie/analysis/gadget/examples") {
+            include(includePattern)
+        }
+        classpath = sourceSets.main.get().compileClasspath
+        destinationDirectory.set(file("$buildDir/classes/java/examples"))
+    }
+
+    // Run task
+    tasks.register<JavaExec>("run${taskName}") {
+        group = "examples"
+        this.description = description
+        dependsOn("compile${taskName}")
+
+        classpath = files(
+            "$buildDir/classes/java/examples",
+            configurations.compileClasspath.get()
+        )
+
+        mainClass.set("pascal.taie.analysis.gadget.examples.${className}")
+
+        jvmArgs = listOf(
+            "--add-opens=java.base/java.lang=ALL-UNNAMED",
+            "--add-opens=java.base/java.util=ALL-UNNAMED",
+            "--add-opens=java.base/java.io=ALL-UNNAMED",
+            "--add-opens=java.base/java.net=ALL-UNNAMED",
+            "--add-opens=java.management/javax.management=ALL-UNNAMED",
+            "--add-opens=java.desktop/javax.swing=ALL-UNNAMED"
+        )
+    }
+}
+
+// C3P0 ClassLoader Exploit
+createExampleTask(
+    "C3P0Example",
+    "C3P0ClassLoaderExploit",
+    "Runs C3P0 ClassLoader gadget chain exploit (CLASS_LOADER sink)"
+)
+
+// Commons Beanutils JNDI Exploit
+createExampleTask(
+    "BeanutilsExample",
+    "CommonsBeanutilsJNDIExploit",
+    "Runs Commons Beanutils JNDI injection exploit (JNDI sink)"
+)
+
+// FileUpload SSRF Exploit
+createExampleTask(
+    "FileUploadExample",
+    "FileUploadSSRFExploit",
+    "Runs FileUpload SSRF gadget chain exploit (SSRF sink)"
+)
+
+// Groovy Exec Exploit
+createExampleTask(
+    "GroovyExecExample",
+    "GroovyExecExploit",
+    "Runs Groovy command execution exploit (EXEC sink)"
+)
+
+// Groovy File Delete Exploit
+createExampleTask(
+    "GroovyFileDeleteExample",
+    "GroovyFileDeleteExploit",
+    "Runs Groovy file deletion exploit (FILE sink)"
+)
+
+// Vaadin Reflection Exploit
+createExampleTask(
+    "VaadinExample",
+    "VaadinReflectionExploit",
+    "Runs Vaadin reflection-based SSRF exploit"
+)
+
+// Task to compile all examples
+tasks.register<JavaCompile>("compileAllExamples") {
+    group = "build"
+    description = "Compiles all exploit POC examples"
+    source = fileTree("src/main/java/pascal/taie/analysis/gadget/examples") {
+        include("*Exploit.java")
+    }
+    classpath = sourceSets.main.get().compileClasspath
+    destinationDirectory.set(file("$buildDir/classes/java/examples"))
+}
+
+// Task to list all available examples
+tasks.register("listExamples") {
+    group = "examples"
+    description = "Lists all available exploit example tasks"
+    doLast {
+        println("╔════════════════════════════════════════════════════════════╗")
+        println("║            Available Exploit Examples                     ║")
+        println("╚════════════════════════════════════════════════════════════╝")
+        println()
+        println("Run examples with: ./gradlew <taskName>")
+        println()
+        println("Available tasks:")
+        println("  1. runC3P0Example          - C3P0 ClassLoader (CLASS_LOADER sink)")
+        println("  2. runBeanutilsExample     - Commons Beanutils JNDI (JNDI sink)")
+        println("  3. runFileUploadExample    - FileUpload SSRF (SSRF sink)")
+        println("  4. runGroovyExample        - Groovy Custom Sink (CUSTOM sink)")
+        println("  5. runGroovyExecExample    - Groovy Command Execution (EXEC sink)")
+        println("  6. runGroovyFileDeleteExample - Groovy File Delete (FILE sink)")
+        println("  7. runVaadinExample        - Vaadin Reflection SSRF")
+        println()
+        println("Compile tasks:")
+        println("  - compileAllExamples       - Compile all examples")
+        println("  - compile<Name>            - Compile specific example")
+        println()
+        println("═══════════════════════════════════════════════════════════")
+    }
+}

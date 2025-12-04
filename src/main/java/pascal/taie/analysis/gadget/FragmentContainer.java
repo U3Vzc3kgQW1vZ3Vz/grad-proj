@@ -35,6 +35,9 @@ public class FragmentContainer {
     // Fragments indexed by taint requirements
     private final Map<Set<Integer>, Set<Fragment>> fragmentsByTaintRequirement;
 
+    // Reverse index: Map method to fragments that can be linked after it
+    private final Map<JMethod, Set<Fragment>> fragmentsLinkableByMethod;
+
     // Dynamic method tracking
     private final Map<JMethod, Set<JMethod>> dynamicSubMethods;
     private final Set<JMethod> dynamicMethods;
@@ -55,6 +58,7 @@ public class FragmentContainer {
         this.fragmentsBySinkType = new EnumMap<>(SinkType.class);
         this.sinkFragmentsByPriority = new TreeMap<>(Collections.reverseOrder());
         this.fragmentsByTaintRequirement = new HashMap<>();
+        this.fragmentsLinkableByMethod = new HashMap<>();
         this.dynamicSubMethods = new HashMap<>();
         this.dynamicMethods = new HashSet<>();
         this.sinkRules = new ArrayList<>();
@@ -135,7 +139,7 @@ public class FragmentContainer {
                 .add(fragment);
         }
 
-        // Index by taint requirement
+        // Index by taint requirement and linkable methods
         if (fragment.getConnectRequirement() != null) {
             Set<Set<Integer>> taintReqs = fragment.getConnectRequirement().getParamsTaintRequire();
             if (taintReqs != null) {
@@ -144,6 +148,13 @@ public class FragmentContainer {
                         .computeIfAbsent(req, k -> new HashSet<>())
                         .add(fragment);
                 }
+            }
+            
+            // Index by pre-linkable methods
+            for (JMethod method : fragment.getConnectRequirement().getPreLinkableMethods()) {
+                fragmentsLinkableByMethod
+                    .computeIfAbsent(method, k -> new HashSet<>())
+                    .add(fragment);
             }
         }
     }
@@ -174,6 +185,16 @@ public class FragmentContainer {
      */
     public Set<Fragment> getFragmentsBySinkType(SinkType sinkType) {
         return Collections.unmodifiableSet(fragmentsBySinkType.get(sinkType));
+    }
+
+    /**
+     * Get fragments that can be linked after the given method.
+     * i.e., fragments F where F.connectRequirement.preLinkableMethods contains method.
+     */
+    public Set<Fragment> getFragmentsLinkableByMethod(JMethod method) {
+        return Collections.unmodifiableSet(
+            fragmentsLinkableByMethod.getOrDefault(method, Collections.emptySet())
+        );
     }
 
     /**
@@ -271,6 +292,7 @@ public class FragmentContainer {
         fragmentsBySinkType.values().forEach(Set::clear);
         sinkFragmentsByPriority.clear();
         fragmentsByTaintRequirement.clear();
+        fragmentsLinkableByMethod.clear();
         dynamicSubMethods.clear();
         dynamicMethods.clear();
         totalFragments = 0;

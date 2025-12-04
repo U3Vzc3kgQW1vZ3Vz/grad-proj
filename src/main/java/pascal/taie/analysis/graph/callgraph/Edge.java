@@ -57,6 +57,8 @@ public class Edge<CallSite, Method> {
 
     private Set<Integer> casted;
 
+    private final List<Integer> csIntContr;
+
     public Edge(CallKind kind, CallSite callSite, Method callee, List<String> csContr, Integer lineNumber, List<Type> typeList) {
         this.kind = kind;
         this.callSite = callSite;
@@ -66,7 +68,8 @@ public class Edge<CallSite, Method> {
         this.filterByCaller = "";
         this.typeList = typeList;
         this.casted = new HashSet<>();
-        hashCode = Hashes.hash(kind, callSite, callee, getCSIntContr());
+        this.csIntContr = ContrUtil.string2Int(csContr);
+        hashCode = Hashes.hash(kind, callSite, callee, this.csIntContr);
     }
 
     /**
@@ -125,7 +128,7 @@ public class Edge<CallSite, Method> {
     }
 
     public List<Integer> getCSIntContr() {
-        return ContrUtil.string2Int(csContr);
+        return csIntContr;
     }
 
     public List<String> getCSContr() {

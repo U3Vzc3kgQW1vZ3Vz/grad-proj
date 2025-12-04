@@ -15,12 +15,15 @@ import java.util.Set;
  * Dangerous patterns:
  * (1) ClassLoader.defineClass(byte[]) -> Class.newInstance()
  * (2) URLClassLoader(URL[]) -> loadClass/forName -> newInstance()
+ * (3) Attacker-controlled ClassLoader.loadClass(String)
+ * (4) Attacker-controlled ClassLoader.findClass(String)
  *
  * Methods detected:
- * - ClassLoader.defineClass
+ * - ClassLoader.defineClass (with byte[] parameter)
+ * - ClassLoader.loadClass (all ClassLoader subclasses)
+ * - ClassLoader.findClass (all ClassLoader subclasses)
  * - URLClassLoader constructors
- * - URLClassLoader.loadClass
- * - Class.forName with ClassLoader parameter
+ * - Class.forName (all variants)
  */
 public class ClassLoaderSinkRule extends AbstractSinkRule {
 
@@ -38,11 +41,15 @@ public class ClassLoaderSinkRule extends AbstractSinkRule {
             sig -> sig.contains("byte[]")
         );
 
+        // ClassLoader.loadClass - find ALL loadClass methods across ClassLoader hierarchy
+        // This covers ClassLoader, URLClassLoader, and all other subclasses
+        addAllMethodsByName(Arrays.asList("java.lang.ClassLoader"), "loadClass");
+
+        // ClassLoader.findClass - another class loading method that can be dangerous
+        addAllMethodsByName(Arrays.asList("java.lang.ClassLoader"), "findClass");
+
         // URLClassLoader constructors - find ALL <init> methods
         addAllMethodsByName(Arrays.asList("java.net.URLClassLoader"), "<init>");
-
-        // URLClassLoader.loadClass - find ALL loadClass methods across URLClassLoader hierarchy
-        addAllMethodsByName(Arrays.asList("java.net.URLClassLoader"), "loadClass");
 
         // Class.forName - find ALL forName methods across Class hierarchy
         addAllMethodsByName(Arrays.asList("java.lang.Class"), "forName");
@@ -61,8 +68,24 @@ public class ClassLoaderSinkRule extends AbstractSinkRule {
             }
         }
 
+        // ClassLoader.loadClass / findClass - check if class name (first arg) is tainted OR receiver is tainted
+        else if (methodSig.contains("loadClass") || methodSig.contains("findClass")) {
+            // Check if the class name argument is tainted
+            boolean classNameTainted = false;
+            if (invoke.getInvokeExp().getArgCount() > 0) {
+                Var classNameArg = invoke.getInvokeExp().getArg(0);
+                classNameTainted = isTainted(classNameArg, taintedVars);
+            }
+
+            // Also check if the ClassLoader receiver is tainted (attacker-controlled ClassLoader)
+            boolean receiverTainted = isReceiverTainted(invoke, taintedVars);
+
+            // Either tainted class name OR tainted classloader is dangerous
+            return classNameTainted || receiverTainted;
+        }
+
         // URLClassLoader.<init> - check URL[] argument is tainted
-        else if (methodSig.contains("URLClassLoader: void <init>") && methodSig.contains("java.net.URL[]")) {
+        else if (methodSig.contains("void <init>") && methodSig.contains("java.net.URL[]")) {
             // The URL[] is typically the first argument
             if (invoke.getInvokeExp().getArgCount() > 0) {
                 Var urlArrayArg = invoke.getInvokeExp().getArg(0);
@@ -70,19 +93,20 @@ public class ClassLoaderSinkRule extends AbstractSinkRule {
             }
         }
 
-        // URLClassLoader.loadClass - check receiver (this) is tainted
-        else if (methodSig.contains("URLClassLoader") && methodSig.contains("loadClass")) {
-            return isReceiverTainted(invoke, taintedVars);
-        }
-
-        // Class.forName - check ClassLoader argument is tainted AND class name is tainted
-        else if (methodSig.contains("Class: java.lang.Class forName") && methodSig.contains("ClassLoader")) {
-            if (invoke.getInvokeExp().getArgCount() >= 3) {
+        // Class.forName - check ClassLoader argument is tainted OR class name is tainted
+        else if (methodSig.contains("forName")) {
+            // Class.forName(String) - check class name
+            if (invoke.getInvokeExp().getArgCount() == 1) {
+                Var classNameArg = invoke.getInvokeExp().getArg(0);
+                return isTainted(classNameArg, taintedVars);
+            }
+            // Class.forName(String, boolean, ClassLoader) - check class name OR classloader
+            else if (invoke.getInvokeExp().getArgCount() >= 3) {
                 Var classNameArg = invoke.getInvokeExp().getArg(0);
                 Var classLoaderArg = invoke.getInvokeExp().getArg(2);
 
-                // Both class name and classloader should be tainted
-                return isTainted(classNameArg, taintedVars) && isTainted(classLoaderArg, taintedVars);
+                // Either class name or classloader tainted is dangerous
+                return isTainted(classNameArg, taintedVars) || isTainted(classLoaderArg, taintedVars);
             }
         }
 

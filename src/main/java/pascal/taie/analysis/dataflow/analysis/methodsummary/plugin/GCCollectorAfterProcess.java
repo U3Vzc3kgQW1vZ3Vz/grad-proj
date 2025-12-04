@@ -16,6 +16,8 @@ import pascal.taie.language.type.Type;
 import pascal.taie.language.type.TypeSystem;
 import pascal.taie.util.Strings;
 import pascal.taie.util.collection.Lists;
+import pascal.taie.analysis.dataflow.analysis.methodsummary.plugin.ChainDeduplicator.ChainData;
+import pascal.taie.analysis.dataflow.analysis.methodsummary.plugin.SignatureUtil;
 
 import java.io.*;
 import java.util.*;
@@ -44,21 +46,18 @@ public class GCCollectorAfterProcess implements Plugin {
 
     // Configuration
     private static final int MAX_LEN = World.get().getOptions().getGC_MAX_LEN();
-    private int SINK_MAX_TIME;
     private static final double LCS_THRESHOLD = World.get().getOptions().getLCS_THRESHOLD();
 
     // Output and deduplication
-    private final Set<List<String>> discoveredChains;
+    private final ChainDeduplicator chainDeduplicator;
     private final PrintWriter pw;
-    private final Map<String, Set<List<String>>> dedupMap;
 
     public GCCollectorAfterProcess(CSCallGraph csCallGraph, String db_path) {
         super();
         this.csCallGraph = csCallGraph;
         this.typeSystem = World.get().getTypeSystem();
         this.output = db_path;
-        this.discoveredChains = new HashSet<>();
-        this.dedupMap = new HashMap<>();
+        this.chainDeduplicator = new ChainDeduplicator(LCS_THRESHOLD);
 
         // Initialize gadget analyzer with sink rules
         this.gadgetAnalyzer = new GadgetAnalyzer();
@@ -88,6 +87,10 @@ public class GCCollectorAfterProcess implements Plugin {
         gadgetAnalyzer.registerSinkRule(new ClassLoaderSinkRule());
         gadgetAnalyzer.registerSinkRule(new SecondDeserializationSinkRule());
         gadgetAnalyzer.registerSinkRule(new CustomSinkRule());
+        gadgetAnalyzer.registerSinkRule(new SSRFSinkRule());
+        gadgetAnalyzer.registerSinkRule(new FileReadSinkRule());
+        gadgetAnalyzer.registerSinkRule(new CodeInjectionSinkRule());
+        gadgetAnalyzer.registerSinkRule(new RMISinkRule());
 
         logger.info("Initialized {} sink rules",
             gadgetAnalyzer.getFragmentContainer().getSinkRules().size());
@@ -95,24 +98,66 @@ public class GCCollectorAfterProcess implements Plugin {
 
     @Override
     public void onFinish() {
-        Set<JMethod> sinks = World.get().getSinks();
+        Set<JMethod> sinks = new HashSet<>(World.get().getSinks());
+
+        // Scan all reachable methods in call graph for additional sinks
+        csCallGraph.reachableMethods()
+                .map(CSMethod::getMethod)
+                .distinct()
+                .filter(m -> !sinks.contains(m))
+                .filter(m -> fragmentContainer.isSinkMethod(m))
+                .forEach(sinks::add);
 
         logger.info("Starting gadget chain collection from {} sinks", sinks.size());
 
-        for (JMethod sink : sinks) {
+        // Use parallel stream to speed up processing
+        sinks.parallelStream().forEach(sink -> {
             logger.info("backward from {}", sink.toString());
             // Try to classify sink type, but process all sinks regardless
             Optional<SinkType> sinkType = fragmentContainer.getSinkType(sink);
-            collectChainsFromSink(sink, sinkType.orElse(null));
-        }
 
-        logger.info("total gadget chains : {}", discoveredChains.size());
-        pw.println("total gadget chains : " + discoveredChains.size());
+            // Ensure sink has taint config (TC)
+            if (sink.getSink() == null) {
+                sink.setSink(guessTaintConfig(sink, sinkType.orElse(null)));
+            }
+
+            collectChainsFromSink(sink, sinkType.orElse(null));
+        });
+
+        logger.info("total gadget chains : {}", chainDeduplicator.getChainCount());
+        pw.println("total gadget chains : " + chainDeduplicator.getChainCount());
+
+        // Write all discovered chains
+        for (ChainData chainData : chainDeduplicator.getDiscoveredChains()) {
+            logAndWriteChain(chainData.edges, chainData.sinkType);
+        }
 
         // Print statistics by sink type
         printStatisticsBySinkType();
 
         pw.flush();
+    }
+
+    private int[] guessTaintConfig(JMethod method, SinkType type) {
+        int[] candidates;
+        if (type == null) {
+            candidates = new int[]{0};
+        } else {
+            candidates = switch (type) {
+                case SECOND_DESERIALIZATION -> new int[]{-1};
+                case INVOKE, RMI -> new int[]{-1, 0};
+                default -> new int[]{0};
+            };
+        }
+        // Filter candidates based on method parameters
+        return Arrays.stream(candidates)
+                .filter(idx -> isValidParamIndex(method, idx))
+                .toArray();
+    }
+
+    private boolean isValidParamIndex(JMethod method, int index) {
+        if (index == -1) return !method.isStatic();
+        return index >= 0 && index < method.getParamCount();
     }
 
     /**
@@ -124,7 +169,10 @@ public class GCCollectorAfterProcess implements Plugin {
             .boxed()
             .collect(Collectors.toList());
 
-        Set<Edge<CSCallSite, CSMethod>> incomingEdges = new HashSet<>(csCallGraph.edgesInTo(sink));
+        Collection<Edge<CSCallSite, CSMethod>> incomingEdges;
+        synchronized (csCallGraph) {
+            incomingEdges = new ArrayList<>(csCallGraph.edgesInTo(sink));
+        }
 
         // Count valid edges for time allocation
         int validEdgeCount = 0;
@@ -141,13 +189,13 @@ public class GCCollectorAfterProcess implements Plugin {
         }
 
         // Allocate time per edge
-        SINK_MAX_TIME = (World.get().getOptions().getSINK_MAX_TIME() * 1000) / validEdgeCount;
+        int sinkMaxTime = (World.get().getOptions().getSINK_MAX_TIME() * 1000) / validEdgeCount;
 
         // Perform backward DFS from each incoming edge
         for (Edge<CSCallSite, CSMethod> edge : incomingEdges) {
             long startTime = System.currentTimeMillis();
             backwardDFS(sink, edge, currentPath, new HashSet<>(),
-                       sinkTaintConstraints, startTime, sinkType);
+                       sinkTaintConstraints, startTime, sinkType, sinkMaxTime);
         }
     }
 
@@ -161,13 +209,14 @@ public class GCCollectorAfterProcess implements Plugin {
      * @param taintConstraints Current taint constraints
      * @param startTime Search start time (for timeout)
      * @param sinkType Type of sink for classification
+     * @param sinkMaxTime Max time allowed for this search branch
      */
     private void backwardDFS(JMethod callee, Edge curEdge, List<Edge> currentPath,
                             Set<JMethod> visited, List<Integer> taintConstraints,
-                            Long startTime, SinkType sinkType) {
+                            Long startTime, SinkType sinkType, int sinkMaxTime) {
 
         // Check termination conditions
-        if (!visited.add(callee) || System.currentTimeMillis() - startTime > SINK_MAX_TIME) {
+        if (!visited.add(callee) || System.currentTimeMillis() - startTime > sinkMaxTime) {
             return;
         }
 
@@ -189,9 +238,8 @@ public class GCCollectorAfterProcess implements Plugin {
                 List<Edge> simplifiedChain = simplifyChain(completeChain);
                 List<String> chainSignatures = getChainSignatures(simplifiedChain);
 
-                if (deduplicateChain(chainSignatures) && discoveredChains.add(chainSignatures)) {
-                    logAndWriteChain(simplifiedChain, sinkType);
-                }
+                // Use ChainDeduplicator to manage chains
+                chainDeduplicator.addChain(chainSignatures, simplifiedChain, sinkType);
             }
         } else if (currentPath.size() >= MAX_LEN) {
             // Reached maximum chain length
@@ -200,10 +248,13 @@ public class GCCollectorAfterProcess implements Plugin {
             return;
         } else {
             // Continue backward search
-            Set<Edge<CSCallSite, CSMethod>> incomingEdges = new HashSet<>(csCallGraph.edgesInTo(caller));
+            Collection<Edge<CSCallSite, CSMethod>> incomingEdges;
+            synchronized (csCallGraph) {
+                incomingEdges = new ArrayList<>(csCallGraph.edgesInTo(caller));
+            }
             for (Edge<CSCallSite, CSMethod> edge : incomingEdges) {
                 backwardDFS(caller, edge, currentPath, visited,
-                           newTaintConstraints, startTime, sinkType);
+                           newTaintConstraints, startTime, sinkType, sinkMaxTime);
             }
         }
 
@@ -219,62 +270,6 @@ public class GCCollectorAfterProcess implements Plugin {
         return !filterChainByEdgeRules(chain) && typeCheckChain(chain);
     }
 
-    /**
-     * Deduplicate chains using LCS similarity
-     */
-    private boolean deduplicateChain(List<String> chainSignatures) {
-        String key = chainSignatures.get(0) + "#" + chainSignatures.get(chainSignatures.size() - 1);
-        List<String> subSignatures = getSubSignatures(chainSignatures);
-
-        dedupMap.putIfAbsent(key, new HashSet<>());
-
-        for (List<String> existingChain : dedupMap.get(key)) {
-            if (computeLCSSimilarity(existingChain, subSignatures) >= LCS_THRESHOLD) {
-                return false; // Too similar to existing chain
-            }
-        }
-
-        dedupMap.get(key).add(subSignatures);
-        return true;
-    }
-
-    public static int computeLCSLength(List<String> list1, List<String> list2) {
-        int m = list1.size();
-        int n = list2.size();
-        int[][] dp = new int[m + 1][n + 1];
-
-        for (int i = 1; i <= m; i++) {
-            String s1 = list1.get(i - 1);
-            for (int j = 1; j <= n; j++) {
-                String s2 = list2.get(j - 1);
-                if (s1.equals(s2)) {
-                    dp[i][j] = dp[i - 1][j - 1] + 1;
-                } else {
-                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-                }
-            }
-        }
-
-        return dp[m][n];
-    }
-
-    /**
-     * Similarity of two gadget chains
-     */
-    private static double computeLCSSimilarity(List<String> list1, List<String> list2) {
-        if (list1.isEmpty() || list2.isEmpty()) {
-            return 0.0;
-        }
-        int lcsLength = computeLCSLength(list1, list2);
-        return (2.0 * lcsLength) / (list1.size() + list2.size());
-    }
-
-    private List<String> getSubSignatures(List<String> signatures) {
-        return signatures.stream()
-            .map(this::getSubSignature)
-            .collect(Collectors.toList());
-    }
-
     private List<String> getChainSignatures(List<Edge> chainEdges) {
         List<String> signatures = new ArrayList<>();
         for (Edge edge : chainEdges) {
@@ -287,7 +282,7 @@ public class GCCollectorAfterProcess implements Plugin {
     /**
      * Log and write discovered chain
      */
-    private void logAndWriteChain(List<Edge> chainEdges, SinkType sinkType) {
+    private synchronized void logAndWriteChain(List<Edge> chainEdges, SinkType sinkType) {
         try {
             // Only print sink type if it's classified
             if (sinkType != null) {
@@ -301,6 +296,7 @@ public class GCCollectorAfterProcess implements Plugin {
                 line.append("->").append(edge.getCSIntContr());
 
                 pw.println(line.toString());
+                logger.info(line.toString());
             }
 
             String sink = CSCallGraph.getCallee(chainEdges.get(chainEdges.size() - 1)).toString();
@@ -333,19 +329,20 @@ public class GCCollectorAfterProcess implements Plugin {
         List<Edge> gcEdgeList = new ArrayList<>(edgeList);
         Collections.reverse(gcEdgeList);
 
-        List<String> subSigList = new ArrayList<>();
+        Map<String, Integer> subSigLastIndex = new HashMap<>(); // Stores subSig -> last index in subSigTracker
+        List<String> subSigTracker = new ArrayList<>(); // To track order for subSigList.contains for recovery
         List<Edge> simplifiedChain = new ArrayList<>();
         String source = CSCallGraph.getCaller(gcEdgeList.get(0)).toString();
 
         for (int i = 0; i < gcEdgeList.size(); i++) {
             Edge edge = gcEdgeList.get(i);
             String gadget = CSCallGraph.getCaller(edge).toString();
-            String subSig = getSubSignature(gadget);
+            String subSig = SignatureUtil.getSubSignature(gadget);
 
-            if (subSigList.contains(subSig)) {
-                int from = subSigList.lastIndexOf(subSig);
+            if (subSigLastIndex.containsKey(subSig)) { // O(1) lookup
+                int from = subSigLastIndex.get(subSig); // Index in subSigTracker
                 if (from != 0) {
-                    int end = subSigList.size();
+                    int end = subSigTracker.size();
                     Edge fromEdge = simplifiedChain.get(from - 1);
 
                     if (fromEdge.getKind() != CallKind.STATIC) {
@@ -356,9 +353,15 @@ public class GCCollectorAfterProcess implements Plugin {
                             Map<String, List<Integer>> tcMap = recoveryTCMap(sourceEdgeList, tcList);
 
                             if (tcMap.containsKey(source)) {
-                                // Remove redundant segment
-                                Lists.clearList(subSigList, from, end);
-                                Lists.clearList(simplifiedChain, from - 1, end);
+                                // Remove redundant segment from simplifiedChain
+                                                        for (int k = from; k < end; k++){
+                                                            String removedSubSig = subSigTracker.get(k);
+                                                            Integer lastIndex = subSigLastIndex.get(removedSubSig);
+                                                            if(lastIndex != null && lastIndex == k){
+                                                                subSigLastIndex.remove(removedSubSig);
+                                                            }
+                                                        }                                Lists.clearList(subSigTracker, from, end);
+                                Lists.clearList(simplifiedChain, from - 1, simplifiedChain.size());
 
                                 // Create replacement edge
                                 CSCallSite csCallSite = (CSCallSite) fromEdge.getCallSite();
@@ -367,13 +370,17 @@ public class GCCollectorAfterProcess implements Plugin {
                                     fromEdge.getCSContr(), fromEdge.getLineNo(), fromEdge.getTypeList());
                                 csCallGraph.addEdge(replaceEdge);
                                 simplifiedChain.add(replaceEdge);
+                                subSigTracker.add(subSig);
+                                subSigLastIndex.put(subSig, subSigTracker.size() - 1);
+                                continue; // Skip adding the current edge again
                             }
                         }
                     }
                 }
             }
 
-            subSigList.add(subSig);
+            subSigTracker.add(subSig);
+            subSigLastIndex.put(subSig, subSigTracker.size() - 1);
             simplifiedChain.add(edge);
         }
 
@@ -384,7 +391,18 @@ public class GCCollectorAfterProcess implements Plugin {
         List<Integer> tempTC = new ArrayList<>();
         for (int i = 0; i < tcList.size(); i++) {
             Integer tc = tcList.get(i);
-            Integer newTC = tc > ContrUtil.iPOLLUTED ? csIntContr.get(tc + 1) : ContrUtil.iPOLLUTED;
+            Integer newTC;
+            if (tc > ContrUtil.iPOLLUTED) {
+                if (tc + 1 < csIntContr.size()) {
+                    newTC = csIntContr.get(tc + 1);
+                } else {
+                    // Index out of bounds, treat as polluted/uncontrollable
+                    newTC = ContrUtil.iPOLLUTED;
+                }
+            } else {
+                newTC = ContrUtil.iPOLLUTED;
+            }
+
             if (!tempTC.contains(newTC)) tempTC.add(newTC);
         }
         return tempTC;
@@ -423,6 +441,9 @@ public class GCCollectorAfterProcess implements Plugin {
             int idx = Strings.extractParamIndex(value.split("#")[1]) + 1;
 
             for (Edge caller : callers) {
+                if (idx >= caller.getCSContr().size()) {
+                    return true; // Index out of bounds, treat as filtered/invalid
+                }
                 String edgeValue = (String) caller.getCSContr().get(idx);
                 if (ContrUtil.isControllableParam(edgeValue)) {
                     idx = Strings.extractParamIndex(edgeValue) + 1;
@@ -437,6 +458,9 @@ public class GCCollectorAfterProcess implements Plugin {
         } else {
             int idx = Strings.extractParamIndex(value) + 1;
             for (Edge caller : callers) {
+                if (idx >= caller.getCSContr().size()) {
+                    return true; // Index out of bounds, treat as filtered/invalid
+                }
                 String edgeValue = (String) caller.getCSContr().get(idx);
                 if (ContrUtil.hasCS(edgeValue) || ContrUtil.isThis(edgeValue)) {
                     String nameReg = ContrUtil.convert2Reg(edgeValue);
@@ -513,10 +537,7 @@ public class GCCollectorAfterProcess implements Plugin {
         return true;
     }
 
-    private String getSubSignature(String method) {
-        String sub = method.split(":")[1];
-        return sub.substring(1, sub.length() - 1);
-    }
+
 
     private List<Type> getParamsType(JMethod method) {
         List<Type> ret = new ArrayList<>(method.getParamTypes());
@@ -537,14 +558,36 @@ public class GCCollectorAfterProcess implements Plugin {
 
     private List<Type> getNewPassType(List<Integer> edgeContr, List<Type> edgeType, List<Type> passType, List<Type> paramsType) {
         List<Type> ret = new ArrayList<>();
+        Type objectType = typeSystem.getClassType("java.lang.Object");
+
         for (int i = 0; i < edgeContr.size(); i++) {
             int c = edgeContr.get(i);
             if (c > ContrUtil.iTHIS) {
-                ret.add(passType != null ? passType.get(c + 1) : edgeType.get(i));
+                if (passType != null && c + 1 < passType.size()) {
+                    ret.add(passType.get(c + 1));
+                } else {
+                    if (i < edgeType.size()) {
+                        ret.add(edgeType.get(i));
+                    } else {
+                        ret.add(objectType);
+                    }
+                }
             } else if (c == ContrUtil.iTHIS) {
-                ret.add(edgeType.get(i));
+                if (i < edgeType.size()) {
+                    ret.add(edgeType.get(i));
+                } else {
+                    ret.add(objectType);
+                }
             } else {
-                ret.add(paramsType.get(i));
+                if (i < paramsType.size()) {
+                    ret.add(paramsType.get(i));
+                } else {
+                    if (i < edgeType.size()) {
+                        ret.add(edgeType.get(i));
+                    } else {
+                        ret.add(objectType);
+                    }
+                }
             }
         }
         return ret;
@@ -555,7 +598,7 @@ public class GCCollectorAfterProcess implements Plugin {
      */
     private void printStatisticsBySinkType() {
         pw.println("\n=== Statistics ===");
-        pw.println("Total unique chains: " + discoveredChains.size());
+        pw.println("Total unique chains: " + chainDeduplicator.getChainCount());
 
         for (SinkRule rule : fragmentContainer.getSinkRules()) {
             pw.println("Sink rule: " + rule.getDescription());

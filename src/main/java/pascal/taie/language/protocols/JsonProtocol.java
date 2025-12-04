@@ -39,7 +39,7 @@ import java.util.Set;
  * Protocol rule for JSON serialization frameworks (Jackson, Gson, Fastjson).
  *
  * Entry methods that start the deserialization process in JSON frameworks:
- * - <init>(): Constructors (annotated with @JsonCreator or no-arg default)
+ * - &lt;init&gt;(): Constructors (annotated with @JsonCreator or no-arg default)
  * - set*(): Setter methods for property writing during deserialization
  * - get*()/is*(): Collection getters (Map/List/Set/Collection) that may trigger side effects
  * - Static factory methods: valueOf, of, from, parse, etc. (annotated or matching naming patterns)

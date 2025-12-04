@@ -1225,7 +1225,7 @@ public class StmtProcessor {
                         callEdge.setFilterByCaller("name:" + invokeDispatch);
                     }
                     if (stmt.getMethodRef().toString().equals("<sun.reflect.annotation.AnnotationInvocationHandler: java.lang.Boolean equalsImpl(java.lang.Object)>")
-                            || stmt.getMethodRef().toString().equals("<java.rmi.server.RemoteObjectInvocationHandler: boolean equals(java.lang.Object)>")) { // TODO improve this
+                            || stmt.getMethodRef().toString().equals("<java.rmi.server.RemoteObjectInvocationHandler: boolean equals(java.lang.Object)>")) { 
                         callEdge.setFilterByCaller("name: equals#param-1");
                     }
                 }

@@ -1,4 +1,5 @@
 .gradle/
+venv/
 docker/
 .idea/
 bin/

@@ -40,7 +40,7 @@ public final class LoggerConfigs {
 
     private static final Logger logger = LogManager.getLogger(LoggerConfigs.class);
 
-    private static final String LOG_FILE = "flash.log";
+    private static final String LOG_FILE = "/log/chains.log";
 
     /**
      * The name of the console appender added in log4j2.yml

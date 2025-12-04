@@ -33,7 +33,7 @@ import soot.VoidType;
  * To reduce false positives, this is more conservative than JSON protocol.
  *
  * Entry methods that start the deserialization process in SnakeYAML:
- * - <init>(): No-arg constructors for object instantiation
+ * - &lt;init&gt;(): No-arg constructors for object instantiation
  * - set*(): Setters for property writing during deserialization
  * - get*(): Collection getters (Map/Collection) that may trigger side effects
  *

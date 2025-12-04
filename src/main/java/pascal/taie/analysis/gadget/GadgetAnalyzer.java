@@ -96,17 +96,20 @@ public class GadgetAnalyzer {
             return composed.map(GadgetChain::new);
         }
 
-        // Try to find intermediate fragments
-        Set<Fragment> freeFragments = fragmentContainer.getFragmentsByState(Fragment.State.FREE_STATE);
+        // Try to find intermediate fragments using the reverse index
+        Set<Fragment> candidates = fragmentContainer.getFragmentsLinkableByMethod(source.getEnd());
 
-        for (Fragment intermediate : freeFragments) {
-            if (canLink(source, intermediate) && canLink(intermediate, sink)) {
-                Optional<Fragment> sourceToIntermediate = fragmentContainer.composeFragments(source, intermediate);
-                if (sourceToIntermediate.isPresent()) {
-                    Optional<Fragment> fullChain = fragmentContainer.composeFragments(
-                        sourceToIntermediate.get(), sink);
-                    if (fullChain.isPresent()) {
-                        return Optional.of(new GadgetChain(fullChain.get()));
+        for (Fragment intermediate : candidates) {
+            // Only consider intermediate fragments that are in FREE_STATE
+            if (intermediate.getState() == Fragment.State.FREE_STATE) {
+                if (canLink(source, intermediate) && canLink(intermediate, sink)) {
+                    Optional<Fragment> sourceToIntermediate = fragmentContainer.composeFragments(source, intermediate);
+                    if (sourceToIntermediate.isPresent()) {
+                        Optional<Fragment> fullChain = fragmentContainer.composeFragments(
+                            sourceToIntermediate.get(), sink);
+                        if (fullChain.isPresent()) {
+                            return Optional.of(new GadgetChain(fullChain.get()));
+                        }
                     }
                 }
             }

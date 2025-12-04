@@ -162,26 +162,18 @@ public class SootWorldBuilder extends AbstractWorldBuilder {
         World.reset();
         World world = new World();
         World.set(world);
-
-        // options will be used during World building, thus it should be
-        // set at first.
         world.setOptions(options);
-        // initialize class hierarchy
         ClassHierarchy hierarchy = new ClassHierarchyImpl();
         SootClassLoader loader = new SootClassLoader(
                 scene, hierarchy, options.isAllowPhantom(), options.getSources());
         hierarchy.setDefaultClassLoader(loader);
         hierarchy.setBootstrapClassLoader(loader);
         world.setClassHierarchy(hierarchy);
-        // initialize type manager
         TypeSystem typeSystem = new TypeSystemImpl(hierarchy);
         world.setTypeSystem(typeSystem);
-        // initialize converter
         Converter converter = new Converter(loader, typeSystem);
         loader.setConverter(converter);
-        // build classes in hierarchy
         buildClasses(hierarchy, scene);
-        // set main method
         if (options.getMainClass() != null) {
             if (scene.hasMainClass()) {
                 world.setMainMethod(
@@ -194,14 +186,10 @@ public class SootWorldBuilder extends AbstractWorldBuilder {
         } else {
             logger.warn("Warning: main class was not given!");
         }
-        // set implicit entries
         world.setImplicitEntries(implicitEntries.stream()
                 .map(hierarchy::getJREMethod)
-                // some implicit entries may not exist in certain JDK version,
-                // thus we filter out null
                 .filter(Objects::nonNull)
                 .toList());
-        // initialize IR builder
         world.setNativeModel(getNativeModel(typeSystem, hierarchy, options));
         IRBuilder irBuilder = new IRBuilder(converter);
         world.setIRBuilder(irBuilder);

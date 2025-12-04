@@ -65,13 +65,13 @@ public class CSMethod extends AbstractCSElement {
         return edges.contains(edge);
     }
 
-    public void addEdge(Edge<CSCallSite, CSMethod> edge) {
+    public synchronized void addEdge(Edge<CSCallSite, CSMethod> edge) {
         // The caller has ensured that each edge added to CSMethod is unique
         edges.add(edge);
     }
 
-    public Set<Edge<CSCallSite, CSMethod>> getEdges() {
-        return Collections.unmodifiableSet(new ArraySet<>(edges, true));
+    public synchronized Set<Edge<CSCallSite, CSMethod>> getEdges() {
+        return Collections.unmodifiableSet(new ArraySet<>(new ArrayList<>(edges), true));
     }
 
     public <R> R getResult(String id, Supplier<R> supplier) {

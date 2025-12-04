@@ -72,13 +72,8 @@ public class SootClassLoader implements JClassLoader {
         if (jclass == null && scene != null) {
             SootClass sootClass = scene.getSootClassUnsafe(name, false);
             if (sootClass != null && (!sootClass.isPhantom() || allowPhantom)) {
-                // TODO: handle phantom class more comprehensively
                 jclass = new JClass(this, sootClass.getName(),
                         sootClass.moduleName);
-                // New class must be put into classes map at first,
-                // at build(jclass) may also trigger the loading of
-                // the new created class. Not putting the class into classes
-                // may cause infinite recursion.
                 classes.put(name, jclass);
                 new SootClassBuilder(converter, sootClass).build(jclass);
                 hierarchy.addClass(jclass);

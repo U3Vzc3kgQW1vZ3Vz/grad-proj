@@ -2,11 +2,11 @@ optionsFile: null
 printHelp: false
 classPath: []
 appClassPath:
-#  - java-benchmarks/JDV/target/Groovy
-  - java-benchmarks/JDV/target/CB
+# - java-benchmarks/JDV/target/Groovy
+# - java-benchmarks/JDV/target/CB
 #  - java-benchmarks/JDV/target/C3P0
-#  - java-benchmarks/JDV/target/FileUpload
-#  - java-benchmarks/JDV/target/Vaadin # <org.yaml.snakeyaml.Yaml: java.lang.Object load(java.lang.String)>
+  - java-benchmarks/JDV/target/FileUpload
+#- java-benchmarks/JDV/target/Vaadin # <org.yaml.snakeyaml.Yaml: java.lang.Object load(java.lang.String)>
 #  - java-benchmarks/JDV/BasicDependency
 inputClasses: []
 javaVersion: 8
